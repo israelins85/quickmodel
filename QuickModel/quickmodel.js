@@ -1,7 +1,6 @@
 .import QtQuick.LocalStorage 2.0 as Sql
 
 /*
-
   new QMDatabase('myApp', '1.0')
   define : returns an object with functions create/filter/delete
   create: returns an object with the properties
@@ -19,20 +18,29 @@ function QMDatabase(appName, version) {
         }
     );
     var AppVersion = this.define('__AppVersion__', {
-        appName: this.String('App Name', {accept_null:false}),
-        version: this.String('Version', {accept_null:false})
+        appName: this.String('App Name', {
+            accept_null: false
+        }),
+        version: this.String('Version', {
+            accept_null: false
+        })
     });
 
-    var appVersion = AppVersion.filter({appName: appName}).get();
+    var appVersion = AppVersion.filter({
+        appName: appName
+    }).get();
 
     if (appVersion) {
         if (appVersion.version !== version) {
             appVersion.version = version;
             appVersion.save();
-            this.migrate = true
+            this.migrate = true;
         }
     } else {
-        appVersion = AppVersion.create({appName: appName, version: version});
+        appVersion = AppVersion.create({
+            appName: appName,
+            version: version
+        });
         this.migrate = true;
     }
 }
@@ -74,21 +82,19 @@ QMDatabase.prototype = {
 
         //If is a foreign key
         if (data.type === 'FK') {
-            items.push(column)
-            items.push('INTEGER')
-            fk.push('FOREIGN KEY(' + column + ')')
-        }
-        else if (data.type === 'PK') {
+            items.push(column);
+            items.push('INTEGER');
+            fk.push('FOREIGN KEY(' + column + ')');
+        } else if (data.type === 'PK') {
             items.push(column);
             items.push('INTEGER PRIMARY KEY');
-        }
-        else {
+        } else {
             items.push(column);
             items.push(data.type);
         }
 
         for (var param in data.params) {
-            switch(param) {
+            switch (param) {
                 case 'accept_null':
                     if (!data.params[param]) {
                         items.push('NOT NULL');
@@ -109,7 +115,10 @@ QMDatabase.prototype = {
             }
         }
 
-        return {field: items.join(' '), fk: fk.join(' ')};
+        return {
+            field: items.join(' '),
+            fk: fk.join(' ')
+        };
     },
     retrieveFields: function(name) {
         var rs;
@@ -122,7 +131,7 @@ QMDatabase.prototype = {
         )
 
         var fields = {};
-        for (var idx=0; idx < rs.rows.length; idx++) {
+        for (var idx = 0; idx < rs.rows.length; idx++) {
             fields[rs.rows[idx].name] = null;
         }
 
@@ -150,7 +159,7 @@ QMDatabase.prototype = {
         }
 
         //Create foreign key references
-        for (var ifk=0; ifk < foreign_keys.length; ifk++) {
+        for (var ifk = 0; ifk < foreign_keys.length; ifk++) {
             sql_create += ", " + foreign_keys[ifk];
         }
 
@@ -169,7 +178,7 @@ QMDatabase.prototype = {
             //Run create table
             this._runSQL(sql_create);
 
-            for (var i=0; i< oldObjs.length; i++) {
+            for (var i = 0; i < oldObjs.length; i++) {
                 for (var field in oldObjs[i]) {
                     if (!(field in fields) && field !== '_model' && field !== 'save') {
                         delete oldObjs[i][field];
@@ -214,8 +223,8 @@ function isEmpty(obj) {
 
     // Assume if it has a length property with a non-zero value
     // that that property is correct.
-    if (obj.length > 0)    return false;
-    if (obj.length === 0)  return true;
+    if (obj.length > 0) return false;
+    if (obj.length === 0) return true;
 
     // If it isn't an object at this point
     // it is empty, but it can't be anything *but* empty
@@ -237,7 +246,9 @@ QMModel.prototype = {
         var obj = this.makeObject(data);
         var insertId = this.insert(obj);
 
-        var objs = this.filter({id:insertId}).all();
+        var objs = this.filter({
+            id: insertId
+        }).all();
         if (objs.length > 0) {
             return objs[0];
         }
@@ -254,8 +265,7 @@ QMModel.prototype = {
                 this.sorters = [];
             }
             this.sorters.push(sorters);
-        }
-        else if (Array.isArray(sorters)) {
+        } else if (Array.isArray(sorters)) {
             this.sorters = sorters;
         }
         return this;
@@ -288,13 +298,12 @@ QMModel.prototype = {
 
         if (this.sorters && this.sorters.length > 0) {
             sql += " ORDER BY ";
-            for (var idxOrder=0; idxOrder < this.sorters.length; idxOrder++) {
+            for (var idxOrder = 0; idxOrder < this.sorters.length; idxOrder++) {
                 if (idxOrder > 0) sql += ", ";
                 var ord = this.sorters[idxOrder];
                 if (ord[0] === '-') {
                     sql += ord.substring(1) + " DESC ";
-                }
-                else {
+                } else {
                     sql += ord;
                 }
             }
@@ -316,7 +325,7 @@ QMModel.prototype = {
         )
 
         var objs = [];
-        for (var i=0; i < rs.rows.length; i++) {
+        for (var i = 0; i < rs.rows.length; i++) {
             var item = rs.rows.item(i);
             var obj = this.makeObject(item);
             objs.push(obj);
@@ -381,7 +390,7 @@ QMModel.prototype = {
         this._meta.db._runSQL(sql);
         this.filterConditions = {};
     },
-    _typeof : function (value) {
+    _typeof: function(value) {
         var l_type = typeof value;
 
         // adjusting type based on object instanceof
@@ -402,7 +411,7 @@ QMModel.prototype = {
 
         return l_type;
     },
-    _convertToSqlType: function (value) {
+    _convertToSqlType: function(value) {
         var l_type = this._typeof(value);
 
         if (l_type === 'boolean') {
@@ -419,7 +428,7 @@ QMModel.prototype = {
 
         return value;
     },
-    _convertFromSqlValue: function (value, definition) {
+    _convertFromSqlValue: function(value, definition) {
         if (!definition) return value;
         if (!value) return value;
 
@@ -480,36 +489,39 @@ QMModel.prototype = {
                 field = operands[0];
                 operator = operands[1];
 
-                switch(operator) {
-                case 'gt':
-                    newOperator = '>'; break;
-                case 'ge':
-                    newOperator = '>='; break;
-                case 'lt':
-                    newOperator = '<'; break;
-                case 'le':
-                    newOperator = '<='; break;
-                case 'null':
-                    if (this.filterConditions[cond])
-                        newOperator = 'IS NULL';
-                    else
-                        newOperator = 'IS NOT NULL';
-                    break;
-                case 'like':
-                    newOperator = 'LIKE';
-                    position = 'BEGINEND';
-                    break;
-                case 'startswith':
-                    newOperator = 'LIKE';
-                    position = 'END';
-                    break;
-                case 'endswith':
-                    newOperator = 'LIKE';
-                    position = 'BEGIN';
-                    break;
+                switch (operator) {
+                    case 'gt':
+                        newOperator = '>';
+                        break;
+                    case 'ge':
+                        newOperator = '>=';
+                        break;
+                    case 'lt':
+                        newOperator = '<';
+                        break;
+                    case 'le':
+                        newOperator = '<=';
+                        break;
+                    case 'null':
+                        if (this.filterConditions[cond])
+                            newOperator = 'IS NULL';
+                        else
+                            newOperator = 'IS NOT NULL';
+                        break;
+                    case 'like':
+                        newOperator = 'LIKE';
+                        position = 'BEGINEND';
+                        break;
+                    case 'startswith':
+                        newOperator = 'LIKE';
+                        position = 'END';
+                        break;
+                    case 'endswith':
+                        newOperator = 'LIKE';
+                        position = 'BEGIN';
+                        break;
                 }
-            }
-            else if (this.filterConditions[cond].constructor === Array) {
+            } else if (this.filterConditions[cond].constructor === Array) {
                 newOperator = 'IN';
             }
 
@@ -529,8 +541,7 @@ QMModel.prototype = {
                     sql += "'" + this.filterConditions[cond] + "'";
                 } else if (newOperator === 'IN') {
                     sql += "('" + this.filterConditions[cond].join("','") + "')";
-                }
-                else {
+                } else {
                     sql += this._convertToSqlType(this.filterConditions[cond]);
                 }
             }
@@ -560,20 +571,24 @@ QMModel.prototype = {
   reference a single instance of a object in the database
   *************************************/
 function QMObject(model) {
-    this._model = model
+    this._model = model;
     this.id = null;
 }
 
 QMObject.prototype = {
     //Functions for single object
     save: function(forceInsert) {
-       if (typeof forceInsert === 'undefined') { forceInsert = false; }
-       if (this.id && !forceInsert) {
-           this._model.filter({id: this.id}).update(this);
-       } else {
-           this.id = this._model.insert(this);
-       }
-       return this;
+        if (typeof forceInsert === 'undefined') {
+            forceInsert = false;
+        }
+        if (this.id && !forceInsert) {
+            this._model.filter({
+                id: this.id
+            }).update(this);
+        } else {
+            this.id = this._model.insert(this);
+        }
+        return this;
     }
 }
 
