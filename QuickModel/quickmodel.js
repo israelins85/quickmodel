@@ -419,8 +419,12 @@ QMModel.prototype = {
             l_type = 'number';
         }
         if (l_type === 'date') {
-            value = value.toISOString();
-            l_type = 'string';
+            if (isNaN(value)) {
+                value = 'null';
+            } else {
+                value = value.toString();
+                l_type = 'string';
+            }
         }
         if (l_type === 'string') {
             value = "'" + value.replace("'", "''") + "'";
