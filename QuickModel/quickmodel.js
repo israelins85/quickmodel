@@ -1,3 +1,4 @@
+.pragma library
 .import QtQuick.LocalStorage 2.0 as Sql
 
 /*
@@ -18,10 +19,10 @@ function QMDatabase(appName, version) {
         }
     );
     var AppVersion = this.define('__AppVersion__', {
-        appName: this.String('App Name', {
+        appName: this.fdString('App Name', {
             accept_null: false
         }),
-        version: this.String('Version', {
+        version: this.fdString('Version', {
             accept_null: false
         })
     });
