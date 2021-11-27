@@ -49,31 +49,31 @@ function QMDatabase(appName, version) {
 QMDatabase.prototype = {
     constructor: QMDatabase,
 
-    String: function(label, params) {
+    fdString: function(label, params) {
         return new QMField('TEXT', label, params);
     },
-    Integer: function(label, params) {
+    fdInteger: function(label, params) {
         return new QMField('INTEGER', label, params);
     },
-    Float: function(label, params) {
+    fdFloat: function(label, params) {
         return new QMField('FLOAT', label, params);
     },
-    Real: function(label, params) {
+    fdReal: function(label, params) {
         return new QMField('REAL', label, params);
     },
-    Date: function(label, params) {
+    fdDate: function(label, params) {
         return new QMField('DATE', label, params);
     },
-    DateTime: function(label, params) {
+    fdDateTime: function(label, params) {
         return new QMField('DATETIME', label, params);
     },
-    Boolean: function(label, params) {
+    fdBoolean: function(label, params) {
         return new QMField('BOOLEAN', label, params);
     },
-    PK: function(label, params) {
+    fdPK: function(label, params) {
         return new QMField('PK', label, params);
     },
-    FK: function(label, params) {
+    fdFK: function(label, params) {
         return new QMField('FK', label, params);
     },
     _defineField: function(column, data) {
@@ -102,7 +102,7 @@ QMDatabase.prototype = {
                     }
                     break;
                 case 'unique':
-                    if (unique) {
+                    if (data.params[param]) {
                         items.push('UNIQUE');
                     }
                     break;
@@ -112,7 +112,6 @@ QMDatabase.prototype = {
                 case 'default':
                     items.push('DEFAULT ' + data.params[param]);
                     break;
-
             }
         }
 
@@ -144,7 +143,7 @@ QMDatabase.prototype = {
         this.properties = {};
         this.tableName = name;
 
-        fields['id'] = this.PK('Primary Key', []);
+        fields['id'] = this.fdPK('Primary Key', []);
 
         var foreign_keys = [];
         for (var column in fields) {
@@ -220,7 +219,7 @@ function QMModel(db, tableName, fields) {
 
 function isEmpty(obj) {
     // null and undefined are "empty"
-    if (obj == null) return true;
+    if (obj === null) return true;
 
     // Assume if it has a length property with a non-zero value
     // that that property is correct.
@@ -361,13 +360,14 @@ QMModel.prototype = {
         var fields = [];
         var values = [];
         for (var field in obj) {
+            var value = obj[field];
             if (field === '_model' || field === 'save')
                 continue;
-            if (field === 'id' && isEmpty(obj[field]))
+            if (field === 'id' && isEmpty(value))
                 continue;
             fields.push(field);
-            if (obj[field]) {
-                values.push(this._convertToSqlType(obj[field]));
+            if ((value !== null) && (value !== undefined)) {
+                values.push(this._convertToSqlType(value));
             } else {
                 values.push('NULL');
             }
@@ -385,7 +385,11 @@ QMModel.prototype = {
 
         return rs.insertId;
     },
-    remove: function() {
+    remove: function(value) {
+        if (value !== null) {
+            this.filterConditions = { id: value };
+        }
+
         var sql = "DELETE FROM " + this._meta.tableName;
         sql += this._defineWhereClause();
         this._meta.db._runSQL(sql);
