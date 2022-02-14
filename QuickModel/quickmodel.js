@@ -9,72 +9,86 @@
   */
 function QMDatabase(appName, version) {
     this.migrate = false
+
     //Tables to handle version control
-    var qMDatabase = this
-    this.conn = Sql.LocalStorage.openDatabaseSync(appName + '_db', "1.0",
-                                                  appName, 100000,
-                                                  function (db) {
-                                                      qMDatabase.migrate = true
-                                                      console.log("*** DATABASE DOESNT EXIST ****")
-                                                      db.changeVersion("",
-                                                                       "1.0")
-                                                  })
-    var AppVersion = this.define('__AppVersion__', {
-                                     "appName": this.fdString('App Name', {
-                                                                  "accept_null": false
-                                                              }),
-                                     "version": this.fdString('Version', {
-                                                                  "accept_null": false
-                                                              })
-                                 })
+    this.conn = Sql.LocalStorage.openDatabaseSync(appName + '_db', "",
+                                                  appName, 100000)
 
-    var appVersion = AppVersion.filter({
-                                           "appName": appName
-                                       }).get()
+    // to control metadata (__DbVersion__) changes only
+    var DbVersion
+    var newMetaVersion = "1.1"
 
-    if (appVersion) {
-        if (appVersion.version !== version) {
-            appVersion.version = version
-            appVersion.save()
-            this.migrate = true
-        }
+    if (this.conn.version !== newMetaVersion) {
+        this.conn = this.conn.changeVersion(this.conn.version, newMetaVersion,
+                                            (function (tx) {
+                                                this.tx = tx
+                                                console.log("Metadata version changed from",
+                                                            this.conn.version,
+                                                            "to",
+                                                            newMetaVersion)
+                                                this.migrate = true
+                                                DbVersion = this._defineDbVersion(
+                                                            this)
+                                                this.tx = null
+                                            }).bind(this))
     } else {
-        appVersion = AppVersion.create({
-                                           "appName": appName,
-                                           "version": version
-                                       })
+        DbVersion = this._defineDbVersion(this)
+    }
+
+    var dbVersion = DbVersion.filterOne()
+
+    if (dbVersion) {
+        var needSave = false
+
+        if (dbVersion.version !== version) {
+            console.log("Migrating db", dbVersion.version, "=>", version)
+            dbVersion.version = version
+            dbVersion.migrated = 0
+            dbVersion.save()
+        }
+
+        this.migrate = (dbVersion.migrated === 0)
+    } else {
+        console.log("Creating db ", version)
+        dbVersion = DbVersion.create({
+                                         "version": version,
+                                         "migrated": 0
+                                     })
         this.migrate = true
     }
 }
 
 QMDatabase.prototype = {
     "constructor": QMDatabase,
-    "fdString": function (label, params) {
-        return new QMField('TEXT', label, params)
+    "fdString": function (params) {
+        return new QMField('TEXT', params)
     },
-    "fdInteger": function (label, params) {
-        return new QMField('INTEGER', label, params)
+    "fdInteger": function (params) {
+        return new QMField('INTEGER', params)
     },
-    "fdFloat": function (label, params) {
-        return new QMField('FLOAT', label, params)
+    "fdFloat": function (params) {
+        return new QMField('FLOAT', params)
     },
-    "fdReal": function (label, params) {
-        return new QMField('REAL', label, params)
+    "fdReal": function (params) {
+        return new QMField('REAL', params)
     },
-    "fdDate": function (label, params) {
-        return new QMField('DATE', label, params)
+    "fdNumeric": function (params) {
+        return new QMField('NUMERIC', params)
     },
-    "fdDateTime": function (label, params) {
-        return new QMField('DATETIME', label, params)
+    "fdDate": function (params) {
+        return new QMField('DATE', params)
     },
-    "fdBoolean": function (label, params) {
-        return new QMField('BOOLEAN', label, params)
+    "fdDateTime": function (params) {
+        return new QMField('DATETIME', params)
     },
-    "fdPK": function (label, params) {
-        return new QMField('PK', label, params)
+    "fdBoolean": function (params) {
+        return new QMField('BOOLEAN', params)
     },
-    "fdFK": function (label, params) {
-        return new QMField('FK', label, params)
+    "fdPK": function (params) {
+        return new QMField('PK', params)
+    },
+    "fdFK": function (params) {
+        return new QMField('FK', params)
     },
     "_defineField": function (column, data) {
         var sql
@@ -122,80 +136,156 @@ QMDatabase.prototype = {
         }
     },
     "retrieveFields": function (name) {
-        var rs
         var sql = "PRAGMA table_info(" + name + ")"
-        this.conn.transaction(function (tx) {
-            console.log("Run SQL: " + sql)
-            rs = tx.executeSql(sql)
-        })
+        var rs = this.executeSql(sql)
 
         var fields = {}
         for (var idx = 0; idx < rs.rows.length; idx++) {
-            fields[rs.rows[idx].name] = null
+            var properties = {}
+            properties.type = rs.rows[idx].type
+            if (rs.rows[idx].pk !== 0)
+                properties.type = 'PK'
+            if (rs.rows[idx].notnull !== 0) {
+                if (typeof properties.params === 'undefined')
+                    properties.params = {}
+
+                properties.params["accept_null"] = false
+            }
+
+            fields[rs.rows[idx].name] = properties
         }
 
         return fields
     },
-    "define": function (name, fields) {
-        var sql_create = "CREATE TABLE IF NOT EXISTS " + name + " ("
-        var idx = 0
-        this.properties = {}
-        this.tableName = name
+    "retrieveCreateTable": function (name) {
+        var sql = "SELECT sql FROM sqlite_master WHERE type = 'table' AND tbl_name = '"
+                + name + "';"
+        var rs = this.executeSql(sql)
 
-        fields['id'] = this.fdPK('Primary Key', [])
-
-        var foreign_keys = []
-        for (var column in fields) {
-            var definitions = fields[column]
-            var field_data = this._defineField(column, fields[column])
-            if (idx > 0)
-                sql_create += ", "
-            sql_create += field_data['field']
-
-            if (field_data['fk'].length > 0) {
-                foreign_keys.push(field_data['fk'])
-            }
-            idx++
+        var createTable = ""
+        if (rs.rows.length > 0) {
+            createTable = rs.rows[0].sql
         }
 
-        //Create foreign key references
-        for (var ifk = 0; ifk < foreign_keys.length; ifk++) {
-            sql_create += ", " + foreign_keys[ifk]
-        }
-
-        sql_create += ")"
+        return createTable
+    },
+    "defineModel": function (name, fields) {
+        if (isNull(fields['id']))
+            fields['id'] = this.fdPK()
         var model = new QMModel(this, name, fields)
 
         if (this.migrate) {
-            var oldObjs = []
-            var oldFields = this.retrieveFields(name)
-            if (!isEmpty(oldFields)) {
-                var oldModel = new QMModel(this, name, oldFields)
-                oldObjs = oldModel.all()
-                this._runSQL("DROP TABLE " + name)
+            var sql_create = "CREATE TABLE " + name + " ("
+            var idx = 0
+            var foreign_keys = []
+            for (var column in fields) {
+                var definitions = fields[column]
+                var field_data = this._defineField(column, fields[column])
+                if (idx > 0)
+                    sql_create += ", "
+                sql_create += field_data['field']
+
+                if (field_data['fk'].length > 0) {
+                    foreign_keys.push(field_data['fk'])
+                }
+                idx++
             }
 
-            //Run create table
-            this._runSQL(sql_create)
+            //Create foreign key references
+            for (var ifk = 0; ifk < foreign_keys.length; ifk++) {
+                sql_create += ", " + foreign_keys[ifk]
+            }
 
-            for (var i = 0; i < oldObjs.length; i++) {
-                for (var field in oldObjs[i]) {
-                    if (!(field in fields) && field !== '_model'
-                            && field !== 'save') {
-                        delete oldObjs[i][field]
+            sql_create += ")"
+
+            var oldCreateTable = this.retrieveCreateTable(name)
+            if (oldCreateTable !== sql_create) {
+                this.transaction(function (db) {
+                    var oldObjs = []
+                    var oldFields = db.retrieveFields(name)
+
+                    if (!isEmpty(oldFields)) {
+                        var oldModel = new QMModel(db, name, oldFields)
+                        oldObjs = oldModel.all()
+                        db.executeSql("DROP TABLE IF EXISTS " + name)
                     }
-                }
-                oldObjs[i].save(true)
+
+                    //Run create table
+                    db.executeSql(sql_create)
+
+                    for (var i = 0; i < oldObjs.length; i++) {
+                        for (var field in oldObjs[i]) {
+                            if (!(field in fields) && field !== '_model'
+                                    && field !== 'save') {
+                                delete oldObjs[i][field]
+                            }
+                        }
+                        oldObjs[i].save(true)
+                    }
+                })
             }
         }
 
         return model
     },
-    "_runSQL": function (sql) {
-        this.conn.transaction(function (tx) {
-            console.log("Run SQL: " + sql)
-            tx.executeSql(sql)
-        })
+    "defineView": function (name, sql) {
+        if (this.migrate) {
+            this.transaction(function (db) {
+                db.executeSql("DROP VIEW IF EXISTS " + name)
+                db.executeSql("CREATE VIEW " + name + " AS " + sql)
+            })
+        }
+
+        var fields = this.retrieveFields(name)
+
+        var view = new QMModel(this, name, fields)
+
+        return view
+    },
+    "executeSql": function (sql) {
+        var rs
+
+        console.log("Run SQL: " + sql)
+        if (!isNull(this.tx)) {
+            rs = this.tx.executeSql(sql)
+        } else {
+            this.conn.transaction(function (tx) {
+                rs = tx.executeSql(sql)
+            })
+        }
+
+        return rs
+    },
+    "transaction": function (callback) {
+        if (!isNull(this.tx)) {
+            callback(this)
+        } else {
+            this.conn.transaction((function (tx) {
+                this.tx = tx
+
+                callback(this)
+
+                this.tx = null
+            }).bind(this))
+        }
+    },
+    "_defineDbVersion": function () {
+        return this.defineModel('__DbVersion__', {
+                                    "version": this.fdString({
+                                                                 "accept_null": false
+                                                             }),
+                                    "migrated": this.fdInteger({
+                                                                   "accept_null": false
+                                                               })
+                                })
+    },
+    "confirmMigration": function () {
+        this.migrate = false
+        var DbVersion = this._defineDbVersion()
+        var dbVersion = DbVersion.filterOne()
+
+        dbVersion.migrated = 1
+        dbVersion.save()
     }
 }
 
@@ -204,16 +294,29 @@ QMDatabase.prototype = {
   QMModel
   Define a class referencing a database table
   *****************************/
-function QMModel(db, tableName, fields) {
+function QMModel(db, tableName, fields, readOnly) {
     this.filterConditions = {}
     this.sorters = []
     this.limiters = null
 
+    if (typeof readOnly === 'undefined')
+        readOnly = false
+
     this._meta = {
         "db": db,
         "tableName": tableName,
-        "fields": fields
+        "fields": fields,
+        "readOnly": readOnly
     }
+}
+
+function isNull(obj) {
+    if (obj === undefined)
+        return true
+    if (obj === null)
+        return true
+
+    return false
 }
 
 function isEmpty(obj) {
@@ -245,6 +348,37 @@ function isEmpty(obj) {
     return true
 }
 
+function isObjectEquals(x, y) {
+    if (x === y)
+        return true
+
+    // if both x and y are null or undefined and exactly the same
+    if (isNull(x) && isNull(y))
+        return true
+
+    if (!(x instanceof Object) || !(y instanceof Object))
+        return false
+
+    // they must have the exact same prototype chain, the closest we can do is
+    // test there constructor.
+    for (var p in x) {
+        // other properties were tested using x.constructor === y.constructor
+        if (!y.hasOwnProperty(p) && !isNull(x[p]))
+            return false
+
+        if (!isObjectEquals(x[p], y[p]))
+            return false
+        // Objects and Arrays must be tested recursively
+    }
+
+    for (p in y)
+        if (!x.hasOwnProperty(p) && !isNull(y[p]))
+            return false
+
+    // allows x[ p ] to be set to undefined
+    return true
+}
+
 QMModel.prototype = {
     "create": function (data) {
         var obj = this.makeObject(data)
@@ -262,6 +396,10 @@ QMModel.prototype = {
     "filter": function (conditions) {
         this.filterConditions = conditions
         return this
+    },
+    "filterOne": function (conditions) {
+        this.filterConditions = conditions
+        return this.get()
     },
     "order": function (sorters) {
         if (typeof sorters === 'string') {
@@ -286,13 +424,13 @@ QMModel.prototype = {
         return null
     },
     "all": function () {
-        var sql = "SELECT "
-        var fields = []
-        for (var field in this._meta.fields) {
-            fields.push(field)
-        }
+        var sql = "SELECT *"
+        //        var fields = []
+        //        for (var field in this._meta.fields) {
+        //            fields.push(field)
+        //        }
 
-        sql += fields.join(',')
+        //        sql += fields.join(',')
         sql += " FROM " + this._meta.tableName
         sql += this._defineWhereClause()
 
@@ -318,15 +456,9 @@ QMModel.prototype = {
             sql += " LIMIT " + this.limiter
         }
 
-        var rs = []
+        var rs = this._meta.db.executeSql(sql)
 
-        this._meta.db.conn.transaction(function (tx) {
-            console.log("Run SQL: " + sql)
-            rs = tx.executeSql(sql)
-
-            //console.log("RESULT SET: " + rs);
-        })
-
+        //console.log("RESULT SET: " + rs);
         var objs = []
         for (var i = 0; i < rs.rows.length; i++) {
             var item = rs.rows.item(i)
@@ -344,9 +476,11 @@ QMModel.prototype = {
         var sql = "UPDATE " + this._meta.tableName + " SET "
         var idx = 0
         for (var field in obj) {
-            if (field === '_model' || field === 'save')
+            if (field === '_model')
                 continue
-            if (field === 'id' && isEmpty(obj[field]))
+            if (field === 'save')
+                continue
+            if (field === 'id')
                 continue
 
             if (idx > 0)
@@ -356,8 +490,10 @@ QMModel.prototype = {
         }
         sql += this._defineWhereClause(this.filterConditions)
 
-        this._meta.db._runSQL(sql)
+        var rs = this._meta.db.executeSql(sql)
         this.filterConditions = {}
+
+        return rs.rowsAffected
     },
     "insert": function (obj) {
         var sql = "INSERT INTO " + this._meta.tableName + "("
@@ -367,28 +503,26 @@ QMModel.prototype = {
             var value = obj[field]
             if (field === '_model' || field === 'save')
                 continue
-            if (field === 'id' && isEmpty(value))
+            if (field === 'id' && isNull(value))
                 continue
+            if (value === undefined) {
+                continue
+            }
             fields.push(field)
-            if ((value !== null) && (value !== undefined)) {
-                values.push(this._convertToSqlType(value))
-            } else {
+            if (value === null) {
                 values.push('NULL')
+            } else {
+                values.push(this._convertToSqlType(value))
             }
         }
         sql += fields.join(', ')
         sql += ") VALUES (" + values.join(', ') + ")"
 
-        var rs
-        this._meta.db.conn.transaction(function (tx) {
-            console.log("Run SQL: " + sql)
-            rs = tx.executeSql(sql)
-        })
-
+        var rs = this._meta.db.executeSql(sql)
         return rs.insertId
     },
     "remove": function (value) {
-        if (value !== null) {
+        if (value !== undefined) {
             this.filterConditions = {
                 "id": value
             }
@@ -396,8 +530,10 @@ QMModel.prototype = {
 
         var sql = "DELETE FROM " + this._meta.tableName
         sql += this._defineWhereClause()
-        this._meta.db._runSQL(sql)
+        var rs = this._meta.db.executeSql(sql)
         this.filterConditions = {}
+
+        return rs.rowsAffected
     },
     "_typeof": function (value) {
         var l_type = typeof value
@@ -484,77 +620,85 @@ QMModel.prototype = {
     },
     "_defineWhereClause": function () {
         var sql = ''
-        var idx = 0
 
-        for (var cond in this.filterConditions) {
-            if (idx > 0)
-                sql += " AND "
-            var operator
-            var newOperator = '='
-            var field = cond
-            var position
-            if (cond.indexOf('__') > -1) {
-                var operands = cond.split('__')
-                field = operands[0]
-                operator = operands[1]
+        if (!isNull(this.filterConditions)
+                && this.filterConditions.constructor === String) {
+            sql = this.filterConditions
+        } else {
+            var idx = 0
 
-                switch (operator) {
-                case 'gt':
-                    newOperator = '>'
-                    break
-                case 'ge':
-                    newOperator = '>='
-                    break
-                case 'lt':
-                    newOperator = '<'
-                    break
-                case 'le':
-                    newOperator = '<='
-                    break
-                case 'null':
-                    if (this.filterConditions[cond])
-                        newOperator = 'IS NULL'
-                    else
-                        newOperator = 'IS NOT NULL'
-                    break
-                case 'like':
-                    newOperator = 'LIKE'
-                    position = 'BEGINEND'
-                    break
-                case 'startswith':
-                    newOperator = 'LIKE'
-                    position = 'END'
-                    break
-                case 'endswith':
-                    newOperator = 'LIKE'
-                    position = 'BEGIN'
-                    break
+            for (var cond in this.filterConditions) {
+                if (idx > 0)
+                    sql += " AND "
+                var operator
+                var newOperator = '='
+                var field = cond
+                var position
+                if (cond.indexOf('__') > -1) {
+                    var operands = cond.split('__')
+                    field = operands[0]
+                    operator = operands[1]
+
+                    switch (operator) {
+                    case 'gt':
+                        newOperator = '>'
+                        break
+                    case 'ge':
+                        newOperator = '>='
+                        break
+                    case 'lt':
+                        newOperator = '<'
+                        break
+                    case 'le':
+                        newOperator = '<='
+                        break
+                    case 'null':
+                        if (this.filterConditions[cond])
+                            newOperator = 'IS NULL'
+                        else
+                            newOperator = 'IS NOT NULL'
+                        break
+                    case 'like':
+                        newOperator = 'LIKE'
+                        position = 'BEGINEND'
+                        break
+                    case 'startswith':
+                        newOperator = 'LIKE'
+                        position = 'END'
+                        break
+                    case 'endswith':
+                        newOperator = 'LIKE'
+                        position = 'BEGIN'
+                        break
+                    }
+                } else if (this.filterConditions[cond].constructor === Array) {
+                    newOperator = 'IN'
                 }
-            } else if (this.filterConditions[cond].constructor === Array) {
-                newOperator = 'IN'
+
+                sql += field + " " + newOperator + " "
+                if (newOperator === 'LIKE') {
+                    sql += "'"
+                    if (position.indexOf('BEGIN') > -1) {
+                        sql += "%"
+                    }
+                    sql += this.filterConditions[cond]
+                    if (position.indexOf('END') > -1) {
+                        sql += "%"
+                    }
+                    sql += "'"
+                } else if (operator !== 'null') {
+                    if (this.filterConditions[cond].constructor === String) {
+                        sql += "'" + this.filterConditions[cond] + "'"
+                    } else if (newOperator === 'IN') {
+                        sql += "('" + this.filterConditions[cond].join(
+                                    "','") + "')"
+                    } else {
+                        sql += this._convertToSqlType(
+                                    this.filterConditions[cond])
+                    }
+                }
+                idx++
             }
-
-            sql += field + " " + newOperator + " "
-            if (newOperator === 'LIKE') {
-                sql += "'"
-                if (position.indexOf('BEGIN') > -1) {
-                    sql += "%"
-                }
-                sql += this.filterConditions[cond]
-                if (position.indexOf('END') > -1) {
-                    sql += "%"
-                }
-                sql += "'"
-            } else if (operator !== 'null') {
-                if (this.filterConditions[cond].constructor === String) {
-                    sql += "'" + this.filterConditions[cond] + "'"
-                } else if (newOperator === 'IN') {
-                    sql += "('" + this.filterConditions[cond].join("','") + "')"
-                } else {
-                    sql += this._convertToSqlType(this.filterConditions[cond])
-                }
-            }
-            idx++
         }
 
         if (sql.length > 0) {
@@ -566,11 +710,22 @@ QMModel.prototype = {
     "makeObject": function (values) {
         var obj = new QMObject(this)
         for (var field in values) {
+            var value = values[field]
+            var idx2Dots = field.indexOf(':')
+            if (idx2Dots > 0) {
+                field = field.substring(0, idx2Dots)
+            }
+
             if (field.startsWith('_') || field === 'save'
                     || !(field in this._meta.fields))
                 continue
-            obj[field] = this._convertFromSqlValue(values[field],
-                                                   this._meta.fields[field])
+
+            value = this._convertFromSqlValue(value, this._meta.fields[field])
+
+            if (!isNull(obj[field.toLowerCase()]) && isNull(value))
+                continue
+
+            obj[field.toLowerCase()] = value
         }
         return obj
     }
@@ -592,13 +747,16 @@ QMObject.prototype = {
         if (typeof forceInsert === 'undefined') {
             forceInsert = false
         }
+
         if (this.id && !forceInsert) {
-            this._model.filter({
-                                   "id": this.id
-                               }).update(this)
-        } else {
-            this.id = this._model.insert(this)
+            var l_rowsAffected = this._model.filter({
+                                                        "id": this.id
+                                                    }).update(this)
+            if (l_rowsAffected > 0)
+                return this
         }
+
+        this.id = this._model.insert(this)
         return this
     }
 }
@@ -608,10 +766,7 @@ QMObject.prototype = {
   QMField
   Define a database field with attributes
   ******************************************/
-function QMField(type, label, params) {
+function QMField(type, params) {
     this.type = type
     this.params = params
-}
-//TODO: Migrations!
-//TODO: Replace concatenations with binds '?'
-
+} //TODO: Migrations!//TODO: Replace concatenations with binds '?'
