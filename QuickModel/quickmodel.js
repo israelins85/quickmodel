@@ -60,6 +60,9 @@ function QMDatabase(appName, version) {
 
 QMDatabase.prototype = {
     "constructor": QMDatabase,
+    "fdCustom": function (type, params) {
+        return new QMField(type, params)
+    },
     "fdString": function (params) {
         return new QMField('TEXT', params)
     },
