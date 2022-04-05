@@ -239,7 +239,7 @@ QMDatabase.prototype = {
             })
         }
 
-        var fields = this.retrieveFields(name)
+        var fields = [] // this.retrieveFields(name)
 
         var view = new QMModel(this, name, fields)
 
@@ -720,7 +720,8 @@ QMModel.prototype = {
             }
 
             if (field.startsWith('_') || field === 'save'
-                    || !(field in this._meta.fields))
+                    || ((this._meta.fields.length !== 0)
+                        && !(field in this._meta.fields)))
                 continue
 
             value = this._convertFromSqlValue(value, this._meta.fields[field])
