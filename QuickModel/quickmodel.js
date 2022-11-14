@@ -38,7 +38,7 @@ function QMDatabase(appName, version) {
 
     if (this.dbVersion) {
         if (this.dbVersion.version !== version) {
-            console.log("Migrating db", dbVersion.version, "=>", version)
+            console.log("Migrating db", this.dbVersion.version, "=>", version)
             this.dbVersion.version = version
             this.dbVersion.migrated = 0
             this.dbVersion.save()
