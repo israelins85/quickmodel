@@ -320,6 +320,14 @@ function isNull(obj) {
 }
 
 function isEmpty(obj) {
+    for (var prop in obj) {
+        return false
+    }
+
+    return true
+}
+
+function isEmpty(obj) {
     // null and undefined are "empty"
     if (obj === null)
         return true
@@ -484,7 +492,7 @@ QMModel.prototype = {
                 continue
 
             if (idx > 0)
-                sql += ","
+                sql += ", "
             sql += field + " = " + this._convertToSqlType(obj[field]) + ""
             idx++
         }
@@ -539,7 +547,9 @@ QMModel.prototype = {
         var l_type = typeof value
 
         // adjusting type based on object instanceof
-        if (l_type === 'object') {
+        if (value.constructor === Array) {
+            l_type = "array"
+        } else if (l_type === 'object') {
             if (value instanceof Date) {
                 l_type = 'date'
             } else if (value instanceof Number) {
@@ -553,9 +563,24 @@ QMModel.prototype = {
 
         return l_type
     },
-    "_convertToSqlType": function (value) {
-        var l_type = this._typeof(value)
+    "_convertToSqlType": function (value, type) {
+        var l_type = type
 
+        if (l_type == null)
+            l_type = this._typeof(value)
+
+        if (l_type === "array") {
+            var ret = "("
+
+            for (var i = 0; i < value.length; ++i) {
+                if (i > 0) {
+                    ret += ", "
+                }
+                ret += this._convertToSqlType(value[i])
+            }
+
+            ret += ")"
+        }
         if (l_type === 'boolean') {
             value = value ? 1 : 0
             l_type = 'number'
@@ -570,6 +595,10 @@ QMModel.prototype = {
         }
         if (l_type === 'string') {
             value = "'" + value.replace("'", "''") + "'"
+        }
+
+        if (l_type === 'null') {
+            value = "null"
         }
 
         return value
@@ -618,87 +647,131 @@ QMModel.prototype = {
 
         return value
     },
+    "_arrayToSqlType": function (array) {
+        return ret
+    },
+    "_fieldWhereClause": function (key, value) {
+        var l_typeof = this._typeof(value)
+        var ret = "("
+
+        if (l_typeof === "array") {
+            ret += "IN "
+            ret += _arrayToSqlType(value)
+            return ret
+        }
+
+        var operator
+        var convertedValue
+
+        if (l_typeof === "object") {
+            var idx = 0
+            var outPrefix
+            var outSuffix
+            for (var op in value) {
+                var v = value[op]
+                var inPrefix = ""
+                var inSuffix = ""
+
+                if (op === "equals") {
+                    operator = "="
+                } else if (op === "not") {
+                    operator = "!="
+                } else if (op === "in") {
+                    operator = "IN"
+                    outPrefix = "("
+                    outSuffix = ")"
+                } else if (op === "notIn") {
+                    operator = "NOT IN"
+                    outPrefix = "("
+                    outSuffix = ")"
+                } else if (op === "lt") {
+                    operator = "<"
+                } else if (op === "lte") {
+                    operator = "<="
+                } else if (op === "gt") {
+                    operator = ">"
+                } else if (op === "gte") {
+                    operator = ">="
+                } else if (op === "contains") {
+                    operator = "LIKE"
+                    inPrefix = "%"
+                    inSuffix = "%"
+                } else if (op === "startsWith") {
+                    operator = "LIKE"
+                    inSuffix = "%"
+                } else if (op === "endsWith") {
+                    operator = "LIKE"
+                    inPrefix = "%"
+                }
+
+                if (idx > 0) {
+                    ret += ") AND ("
+                }
+
+                convertedValue = this._convertToSqlType(inPrefix + v + inSuffix)
+
+                ret += key
+                ret += " "
+                ret += operator
+                ret += " "
+                if (outPrefix !== undefined) {
+                    ret += outPrefix
+                }
+                ret += convertedValue
+                if (outSuffix !== undefined) {
+                    ret += outSuffix
+                }
+                ++idx
+            }
+        } else {
+            operator = "="
+            convertedValue = this._convertToSqlType(value, l_typeof)
+
+            ret += key
+            ret += " "
+            ret += operator
+            ret += " "
+            ret += convertedValue
+        }
+
+        ret += ")"
+
+        return ret
+    },
+    "_topLevelWhereClause": function (conditions, joint) {
+        var idx = 0
+        var ret = ""
+
+        for (var key in conditions) {
+            if (idx > 0) {
+                ret += joint
+            }
+            var value = conditions[key]
+
+            if (key === "AND") {
+                ret += "(" + this._topLevelWhereClause(value, " AND ") + ")"
+            } else if (key === "NOT") {
+                ret += "NOT (" + this._topLevelWhereClause(value, " AND ") + ")"
+            } else if (key === "OR") {
+                ret += "(" + this._topLevelWhereClause(value, " OR ") + ")"
+            } else {
+                ret += this._fieldWhereClause(key, value)
+            }
+            ++idx
+        }
+
+        return ret
+    },
     "_defineWhereClause": function () {
         var sql = ''
 
-        if (!isNull(this.filterConditions)
-                && this.filterConditions.constructor === String) {
+        if (isNull(this.filterConditions) || isEmpty(this.filterConditions)) {
+
+            // nothing
+        } else if (this.filterConditions.constructor === String) {
             sql = this.filterConditions
         } else {
-            var idx = 0
-
-            for (var cond in this.filterConditions) {
-                if (idx > 0)
-                    sql += " AND "
-                var operator
-                var newOperator = '='
-                var field = cond
-                var position
-                if (cond.indexOf('__') > -1) {
-                    var operands = cond.split('__')
-                    field = operands[0]
-                    operator = operands[1]
-
-                    switch (operator) {
-                    case 'gt':
-                        newOperator = '>'
-                        break
-                    case 'ge':
-                        newOperator = '>='
-                        break
-                    case 'lt':
-                        newOperator = '<'
-                        break
-                    case 'le':
-                        newOperator = '<='
-                        break
-                    case 'null':
-                        if (this.filterConditions[cond])
-                            newOperator = 'IS NULL'
-                        else
-                            newOperator = 'IS NOT NULL'
-                        break
-                    case 'like':
-                        newOperator = 'LIKE'
-                        position = 'BEGINEND'
-                        break
-                    case 'startswith':
-                        newOperator = 'LIKE'
-                        position = 'END'
-                        break
-                    case 'endswith':
-                        newOperator = 'LIKE'
-                        position = 'BEGIN'
-                        break
-                    }
-                } else if (this.filterConditions[cond].constructor === Array) {
-                    newOperator = 'IN'
-                }
-
-                sql += field + " " + newOperator + " "
-                if (newOperator === 'LIKE') {
-                    sql += "'"
-                    if (position.indexOf('BEGIN') > -1) {
-                        sql += "%"
-                    }
-                    sql += this.filterConditions[cond]
-                    if (position.indexOf('END') > -1) {
-                        sql += "%"
-                    }
-                    sql += "'"
-                } else if (operator !== 'null') {
-                    if (this.filterConditions[cond].constructor === String) {
-                        sql += "'" + this.filterConditions[cond] + "'"
-                    } else if (newOperator === 'IN') {
-                        sql += "('" + this.filterConditions[cond].join(
-                                    "','") + "')"
-                    } else {
-                        sql += this._convertToSqlType(
-                                    this.filterConditions[cond])
-                    }
-                }
-                idx++
-            }
+            sql = this._topLevelWhereClause(this.filterConditions, " AND ")
         }
 
         if (sql.length > 0) {
