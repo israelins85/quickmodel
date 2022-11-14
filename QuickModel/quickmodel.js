@@ -547,6 +547,9 @@ QMModel.prototype = {
         var l_type = typeof value
 
         // adjusting type based on object instanceof
+        if (value == null) {
+            l_type = "null"
+        } else
         if (value.constructor === Array) {
             l_type = "array"
         } else if (l_type === 'object') {
