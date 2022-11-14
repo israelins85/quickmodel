@@ -8,8 +8,7 @@
   create: returns an object with the properties
   */
 function QMDatabase(appName, version) {
-    this.migrate = false
-
+    this.migrating = false
     //Tables to handle version control
     this.conn = Sql.LocalStorage.openDatabaseSync(appName + '_db', "",
                                                   appName, 100000)
@@ -26,7 +25,7 @@ function QMDatabase(appName, version) {
                                                             this.conn.version,
                                                             "to",
                                                             newMetaVersion)
-                                                this.migrate = true
+                                                this.migrating = true
                                                 DbVersion = this._defineDbVersion(
                                                             this)
                                                 this.tx = null
@@ -35,26 +34,23 @@ function QMDatabase(appName, version) {
         DbVersion = this._defineDbVersion(this)
     }
 
-    var dbVersion = DbVersion.filterOne()
+    this.dbVersion = DbVersion.filterOne()
 
-    if (dbVersion) {
-        var needSave = false
-
-        if (dbVersion.version !== version) {
+    if (this.dbVersion) {
+        if (this.dbVersion.version !== version) {
             console.log("Migrating db", dbVersion.version, "=>", version)
-            dbVersion.version = version
-            dbVersion.migrated = 0
-            dbVersion.save()
+            this.dbVersion.version = version
+            this.dbVersion.migrated = 0
+            this.dbVersion.save()
+            this.migrating = true
         }
-
-        this.migrate = (dbVersion.migrated === 0)
     } else {
         console.log("Creating db ", version)
-        dbVersion = DbVersion.create({
-                                         "version": version,
-                                         "migrated": 0
-                                     })
-        this.migrate = true
+        this.dbVersion = DbVersion.create({
+                                              "version": version,
+                                              "migrated": 0
+                                          })
+        this.migrating = true
     }
 }
 
@@ -177,7 +173,7 @@ QMDatabase.prototype = {
             fields['id'] = this.fdPK()
         var model = new QMModel(this, name, fields)
 
-        if (this.migrate) {
+        if (this.migrating) {
             var sql_create = "CREATE TABLE " + name + " ("
             var idx = 0
             var foreign_keys = []
@@ -232,7 +228,7 @@ QMDatabase.prototype = {
         return model
     },
     "defineView": function (name, sql) {
-        if (this.migrate) {
+        if (this.migrating) {
             this.transaction(function (db) {
                 db.executeSql("DROP VIEW IF EXISTS " + name)
                 db.executeSql("CREATE VIEW " + name + " AS " + sql)
@@ -283,12 +279,13 @@ QMDatabase.prototype = {
                                 })
     },
     "confirmMigration": function () {
-        this.migrate = false
-        var DbVersion = this._defineDbVersion()
-        var dbVersion = DbVersion.filterOne()
+        if (this.migrating) {
+            this.dbVersion.migrated = 1
+            this.dbVersion.save()
+            this.migrating = false
+        }
 
-        dbVersion.migrated = 1
-        dbVersion.save()
+        delete this.dbVersion
     }
 }
 
