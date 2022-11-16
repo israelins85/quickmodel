@@ -432,14 +432,7 @@ QMModel.prototype = {
         return null
     },
     "all": function () {
-        var sql = "SELECT *"
-        //        var fields = []
-        //        for (var field in this._meta.fields) {
-        //            fields.push(field)
-        //        }
-
-        //        sql += fields.join(',')
-        sql += " FROM " + this._meta.tableName
+        var sql = "SELECT * FROM " + this._meta.tableName
         sql += this._defineWhereClause()
 
         if (this.sorters && this.sorters.constructor === String) {
@@ -549,8 +542,7 @@ QMModel.prototype = {
         // adjusting type based on object instanceof
         if (value == null) {
             l_type = "null"
-        } else
-        if (value.constructor === Array) {
+        } else if (value.constructor === Array) {
             l_type = "array"
         } else if (l_type === 'object') {
             if (value instanceof Date) {
@@ -609,7 +601,7 @@ QMModel.prototype = {
     "_convertFromSqlValue": function (value, definition) {
         if (!definition)
             return value
-        if (!value)
+        if (value == null)
             return value
 
         var l_type = this._typeof(value)
@@ -791,6 +783,7 @@ QMModel.prototype = {
             if (idx2Dots > 0) {
                 field = field.substring(0, idx2Dots)
             }
+            field = field.toLowerCase()
 
             if (field.startsWith('_') || field === 'save'
                     || ((this._meta.fields.length !== 0)
@@ -799,10 +792,10 @@ QMModel.prototype = {
 
             value = this._convertFromSqlValue(value, this._meta.fields[field])
 
-            if (!isNull(obj[field.toLowerCase()]) && isNull(value))
+            if (!isNull(obj[field]) && isNull(value))
                 continue
 
-            obj[field.toLowerCase()] = value
+            obj[field] = value
         }
         return obj
     }
