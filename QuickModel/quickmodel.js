@@ -564,18 +564,11 @@ QMModel.prototype = {
         if (l_type == null)
             l_type = this._typeof(value)
 
-        if (l_type === "array") {
-            var ret = "("
-
-            for (var i = 0; i < value.length; ++i) {
-                if (i > 0) {
-                    ret += ", "
-                }
-                ret += this._convertToSqlType(value[i])
-            }
-
-            ret += ")"
+        if (l_type === "array" || l_type === "object") {
+            value = JSON.stringify(value)
+            l_type = 'string'
         }
+
         if (l_type === 'boolean') {
             value = value ? 1 : 0
             l_type = 'number'
@@ -646,6 +639,9 @@ QMModel.prototype = {
                         value = value !== 0
                     break
                 }
+            } else if ((l_desiredType === "ARRAY"
+                        || l_desiredType === "JSON")) {
+                value = JSON.parse(value)
             }
         }
 
