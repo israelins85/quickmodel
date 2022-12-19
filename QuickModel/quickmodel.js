@@ -584,7 +584,7 @@ QMModel.prototype = {
             if (isNaN(value)) {
                 value = 'null'
             } else {
-                value = value.toString()
+                value = value.toISOString()
                 l_type = 'string'
             }
         }
@@ -601,6 +601,7 @@ QMModel.prototype = {
     "_convertFromSqlValue": function (value, definition) {
         if (!definition)
             return value
+
         if (value == null)
             return value
 
@@ -620,7 +621,15 @@ QMModel.prototype = {
                 value = Number(value)
             } else if ((l_desiredType === 'DATE')
                        || (l_desiredType === 'DATETIME')) {
-                value = new Date(value)
+                var rxDatePattern = /^\d{4}-\d{2}-\d{2}$/
+                if (value.match(rxDatePattern)) {
+                    // é somente a data
+                    value = new Date(value)
+                    var diff = value.getTimezoneOffset()
+                    value = new Date(value.getTime() + diff * 60000)
+                } else {
+                    value = new Date(value)
+                }
             } else if (l_desiredType === 'BOOLEAN') {
                 switch (value) {
                 case "true":
