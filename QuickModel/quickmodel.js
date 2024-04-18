@@ -168,7 +168,18 @@ QMDatabase.prototype = {
 
         return createTable
     },
-    "defineModel": function (name, fields) {
+    "retrieveTriggersName": function (name) {
+        var sql = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = '"
+                + name + "';"
+        var rs = this.executeSql(sql)
+
+        var triggers = []
+        for (var i = 0; i < rs.rows.length; ++i) {
+            triggers.push(rs.rows[0].name)
+        }
+        return triggers
+    },
+    "defineModel": function (name, fields, triggers = undefined) {
         if (isNull(fields['id']))
             fields['id'] = this.fdPK()
         var model = new QMModel(this, name, fields)
@@ -220,6 +231,21 @@ QMDatabase.prototype = {
                             }
                         }
                         oldObjs[i].save(true)
+                    }
+                })
+            }
+
+            // @disable-check M126
+            if (triggers != null) {
+                const currentTriggers = this.retrieveTriggersName(name)
+                this.transaction(function (db) {
+                    for (var i = 0; i < currentTriggers.length; i++) {
+                        const trigger = currentTriggers[i]
+                        db.executeSql(`DROP TRIGGER ${trigger} ON ${name}`)
+                    }
+
+                    for (var j = 0; j < triggers.length; j++) {
+                        db.executeSql(triggers[j])
                     }
                 })
             }
