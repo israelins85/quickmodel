@@ -522,8 +522,8 @@ QMModel.prototype = {
 
         return rs.rowsAffected
     },
-    "insert": function (obj) {
-        var sql = "INSERT INTO " + this._meta.tableName + "("
+    "_insert": function (command, obj) {
+        var sql = command + " INTO " + this._meta.tableName + "("
         var fields = []
         var values = []
         for (var field in obj) {
@@ -548,6 +548,12 @@ QMModel.prototype = {
         var rs = this._meta.db.executeSql(sql)
         return rs.insertId
     },
+    "insert": function (obj) {
+        return this._insert("INSERT", obj)
+    },
+    "upsert": function (obj) {
+        return this._insert("INSERT OR REPLACE", obj)
+    },
     "remove": function (value) {
         if (value !== undefined) {
             this.filterConditions = {
@@ -566,6 +572,7 @@ QMModel.prototype = {
         var l_type = typeof value
 
         // adjusting type based on object instanceof
+        // @disable-check M126
         if (value == null) {
             l_type = "null"
         } else if (value.constructor === Array) {
@@ -587,6 +594,7 @@ QMModel.prototype = {
     "_convertToSqlType": function (value, type) {
         var l_type = type
 
+        // @disable-check M126
         if (l_type == null)
             l_type = this._typeof(value)
 
@@ -621,6 +629,7 @@ QMModel.prototype = {
         if (!definition)
             return value
 
+        // @disable-check M126
         if (value == null)
             return value
 
