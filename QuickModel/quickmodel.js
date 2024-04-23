@@ -15,7 +15,7 @@ function QMDatabase(appName, version) {
 
     // to control metadata (__DbVersion__) changes only
     var DbVersion
-    var newMetaVersion = "1.1"
+    var newMetaVersion = "2"
 
     if (this.conn.version !== newMetaVersion) {
         this.conn = this.conn.changeVersion(this.conn.version, newMetaVersion,
@@ -42,7 +42,11 @@ function QMDatabase(appName, version) {
             this.dbVersion.version = version
             this.dbVersion.migrated = 0
             this.dbVersion.save()
-            this.migrating = true
+            DbVersion.filter({
+                                 "id": {
+                                     "not": this.dbVersion.id
+                                 }
+                             }).remove()
         }
     } else {
         console.log("Creating db ", version)
@@ -50,6 +54,9 @@ function QMDatabase(appName, version) {
                                               "version": version,
                                               "migrated": 0
                                           })
+    }
+
+    if (this.dbVersion.migrated !== 1) {
         this.migrating = true
     }
 }
@@ -58,6 +65,9 @@ QMDatabase.prototype = {
     "constructor": QMDatabase,
     "fdCustom": function (type, params) {
         return new QMField(type, params)
+    },
+    "fdBlob": function (params) {
+        return new QMField('BLOB', params)
     },
     "fdString": function (params) {
         return new QMField('TEXT', params)
@@ -83,55 +93,83 @@ QMDatabase.prototype = {
     "fdBoolean": function (params) {
         return new QMField('BOOLEAN', params)
     },
-    "fdPK": function (params) {
-        return new QMField('PK', params)
+    "fdPK": function (type, params) {
+        if (typeof type !== 'string') {
+            // @disable-check M126
+            if (params == null) {
+                params = type
+            }
+            type = "INTEGER"
+        }
+        // @disable-check M126
+        if (params == null) {
+            params = {}
+        }
+        params['primary'] = true
+
+        return new QMField(type, params)
     },
-    "fdFK": function (params) {
-        return new QMField('FK', params)
+    "fdFK": function (type, params) {
+        if (typeof type !== 'string') {
+            // @disable-check M126
+            if (params == null) {
+                params = type
+            }
+            type = "INTEGER"
+        }
+
+        // @disable-check M126
+        if (params['references'] == null) {
+            console.error("Wrong FK definition need references field")
+        }
+
+        return new QMField(type, params)
     },
     "_defineField": function (column, data) {
         var sql
         var items = []
-        var fk = []
+        var fk = ""
 
-        //If is a foreign key
-        if (data.type === 'FK') {
-            items.push(column)
-            items.push('INTEGER')
-            fk.push('FOREIGN KEY(' + column + ')')
-        } else if (data.type === 'PK') {
-            items.push(column)
-            items.push('INTEGER PRIMARY KEY')
-        } else {
-            items.push(column)
-            items.push(data.type)
-        }
+        items.push(column)
+        items.push(data.type)
 
         for (var param in data.params) {
+            const value = data.params[param]
             switch (param) {
+            case 'primary':
+                if (value) {
+                    items.push('PRIMARY KEY')
+                }
+                break
             case 'accept_null':
-                if (!data.params[param]) {
+                if (!value) {
                     items.push('NOT NULL')
                 }
                 break
             case 'unique':
-                if (data.params[param]) {
+                if (value) {
                     items.push('UNIQUE')
                 }
                 break
             case 'references':
-                fk.push('REFERENCES ' + data.params[param]
-                        + '(id) ON DELETE CASCADE ON UPDATE CASCADE')
+                let refField = data.params["references_field"]
+
+                // @disable-check M126
+                if (refField == null)
+                    refField = "id"
+
+                fk = 'FOREIGN KEY(' + column + ') REFERENCES ' + value + '('
+                        + refField + ') ON DELETE CASCADE ON UPDATE CASCADE'
                 break
             case 'default':
-                items.push('DEFAULT ' + data.params[param])
+                items.push('DEFAULT ' + value)
                 break
             }
         }
 
         return {
             "field": items.join(' '),
-            "fk": fk.join(' ')
+            "fk": fk
         }
     },
     "retrieveFields": function (name) {
@@ -142,8 +180,6 @@ QMDatabase.prototype = {
         for (var idx = 0; idx < rs.rows.length; idx++) {
             var properties = {}
             properties.type = rs.rows[idx].type
-            if (rs.rows[idx].pk !== 0)
-                properties.type = 'PK'
             if (rs.rows[idx].notnull !== 0) {
                 if (typeof properties.params === 'undefined')
                     properties.params = {}
@@ -175,19 +211,18 @@ QMDatabase.prototype = {
 
         var triggers = []
         for (var i = 0; i < rs.rows.length; ++i) {
-            triggers.push(rs.rows[0].name)
+            triggers.push(rs.rows[i].name)
         }
         return triggers
     },
     "defineModel": function (name, fields, triggers = undefined) {
-        if (isNull(fields['id']))
-            fields['id'] = this.fdPK()
         var model = new QMModel(this, name, fields)
 
         if (this.migrating) {
             var sql_create = "CREATE TABLE " + name + " ("
             var idx = 0
             var foreign_keys = []
+
             for (var column in fields) {
                 var definitions = fields[column]
                 var field_data = this._defineField(column, fields[column])
@@ -201,9 +236,9 @@ QMDatabase.prototype = {
                 idx++
             }
 
-            //Create foreign key references
-            for (var ifk = 0; ifk < foreign_keys.length; ifk++) {
-                sql_create += ", " + foreign_keys[ifk]
+            // Create foreign key references
+            if (foreign_keys.length > 0) {
+                sql_create += ", " + foreign_keys.join(", ")
             }
 
             sql_create += ")"
@@ -241,7 +276,7 @@ QMDatabase.prototype = {
                 this.transaction(function (db) {
                     for (var i = 0; i < currentTriggers.length; i++) {
                         const trigger = currentTriggers[i]
-                        db.executeSql(`DROP TRIGGER ${trigger} ON ${name}`)
+                        db.executeSql(`DROP TRIGGER IF EXISTS ${trigger};`)
                     }
 
                     for (var j = 0; j < triggers.length; j++) {
@@ -296,6 +331,7 @@ QMDatabase.prototype = {
     },
     "_defineDbVersion": function () {
         return this.defineModel('__DbVersion__', {
+                                    "id": this.fdPK(),
                                     "version": this.fdString({
                                                                  "accept_null": false
                                                              }),
@@ -644,8 +680,7 @@ QMModel.prototype = {
 
         if (l_type === 'string') {
             if ((l_desiredType === 'FLOAT') || (l_desiredType === 'REAL')
-                    || (l_desiredType === 'INTEGER') || (l_desiredType === 'FK')
-                    || (l_desiredType === 'PK')) {
+                    || (l_desiredType === 'INTEGER')) {
                 value = Number(value)
             } else if ((l_desiredType === 'DATE')
                        || (l_desiredType === 'DATETIME')) {
