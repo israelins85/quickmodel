@@ -172,9 +172,9 @@ QMDatabase.prototype = {
             "fk": fk
         }
     },
-    "retrieveFields": function (name) {
+    "retrieveFields": function (db, name) {
         var sql = "PRAGMA table_info(" + name + ")"
-        var rs = this.executeSql(sql)
+        var rs = db.executeSql(sql)
 
         var fields = {}
         for (var idx = 0; idx < rs.rows.length; idx++) {
@@ -192,40 +192,37 @@ QMDatabase.prototype = {
 
         return fields
     },
-    "retrieveCreateTable": function (name) {
-        var sql = "SELECT sql FROM sqlite_master WHERE type = 'table' AND tbl_name = '"
-                + name + "';"
-        var rs = this.executeSql(sql)
+    "retrieveTableMeta": function (db, tblName, type) {
+        var sql = `SELECT * FROM sqlite_master WHERE type = '${type}' AND tbl_name = '${tblName}';`
+        var rs = db.executeSql(sql)
 
-        var createTable = ""
-        if (rs.rows.length > 0) {
-            createTable = rs.rows[0].sql
-        }
-
-        return createTable
-    },
-    "retrieveTriggersName": function (name) {
-        var sql = "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = '"
-                + name + "';"
-        var rs = this.executeSql(sql)
-
-        var triggers = []
+        var ret = []
         for (var i = 0; i < rs.rows.length; ++i) {
-            triggers.push(rs.rows[i].name)
+            ret.push(rs.rows[i])
         }
-        return triggers
+        return ret
     },
-    "defineModel": function (name, fields, triggers = undefined) {
-        var model = new QMModel(this, name, fields)
+    "defineModel": function (tblName, definition) {
+        const db = this
+        let fields = definition.fields
+        let triggers = definition.triggers
+        let indexes = definition.indexes
+
+        // @disable-check M126
+        if (fields == null) {
+            fields = definition
+        }
+
+        var model = new QMModel(db, tblName, fields)
 
         if (this.migrating) {
-            var sql_create = "CREATE TABLE " + name + " ("
+            var sql_create = "CREATE TABLE " + tblName + " ("
             var idx = 0
             var foreign_keys = []
 
             for (var column in fields) {
                 var definitions = fields[column]
-                var field_data = this._defineField(column, fields[column])
+                var field_data = db._defineField(column, definitions)
                 if (idx > 0)
                     sql_create += ", "
                 sql_create += field_data['field']
@@ -243,62 +240,108 @@ QMDatabase.prototype = {
 
             sql_create += ")"
 
-            var oldCreateTable = this.retrieveCreateTable(name)
-            if (oldCreateTable !== sql_create) {
-                this.transaction(function (db) {
+            this.transaction(function (tx) {
+                var oldCreateTable = db.retrieveTableMeta(tx, tblName, 'table')
+                if (oldCreateTable.length === 0
+                        || oldCreateTable[0].sql !== sql_create) {
                     var oldObjs = []
-                    var oldFields = db.retrieveFields(name)
+                    var oldFields = db.retrieveFields(tx, tblName)
 
                     if (!isEmpty(oldFields)) {
-                        var oldModel = new QMModel(db, name, oldFields)
+                        var oldModel = new QMModel(tx, tblName, oldFields)
                         oldObjs = oldModel.all()
-                        db.executeSql("DROP TABLE IF EXISTS " + name)
+                        tx.executeSql("DROP TABLE IF EXISTS " + tblName)
                     }
 
                     //Run create table
-                    db.executeSql(sql_create)
+                    tx.executeSql(sql_create)
 
                     for (var i = 0; i < oldObjs.length; i++) {
                         for (var field in oldObjs[i]) {
-                            if (!(field in fields) && field !== '_model'
-                                    && field !== 'save') {
-                                delete oldObjs[i][field]
+                            if (field !== '_model' && field !== 'save'
+                                    && field !== 'remove') {
+                                const curDef = fields[field]
+                                // @disable-check M126
+                                if (curDef == null)
+                                    delete oldObjs[i][field]
                             }
                         }
+                        oldObjs.tx = tx
                         oldObjs[i].save(true)
                     }
-                })
-            }
+                }
 
-            // @disable-check M126
-            if (triggers != null) {
-                const currentTriggers = this.retrieveTriggersName(name)
-                this.transaction(function (db) {
-                    for (var i = 0; i < currentTriggers.length; i++) {
-                        const trigger = currentTriggers[i]
-                        db.executeSql(`DROP TRIGGER IF EXISTS ${trigger};`)
-                    }
+                const currentIndexes = db.retrieveTableMeta(tx,
+                                                            tblName, "index")
 
-                    for (var j = 0; j < triggers.length; j++) {
-                        db.executeSql(triggers[j])
+                for (var di = 0; di < currentIndexes.length; di++) {
+                    const index = currentIndexes[di]
+                    if (index.name.startsWith("sqlite_"))
+                        continue
+                    tx.executeSql(`DROP INDEX IF EXISTS ${index.name};`)
+                }
+
+                // @disable-check M126
+                if (indexes != null) {
+                    for (var j = 0; j < indexes.length; j++) {
+                        let indexDef = indexes[j]
+                        if (typeof indexDef !== "string") {
+                            let idxName = indexDef.name
+                            const idxFields = indexDef.fields.join(", ")
+                            const idxWhere = indexDef.where ?? ""
+                            const idxIsUnique = indexDef.unique ? "UNIQUE" : ""
+
+                            // @disable-check M126
+                            if (idxName == null) {
+                                const idxFieldsJoint = indexDef.fields.join("_")
+                                if (indexDef.unique)
+                                    idxName = `idx_unique_${tblName}_${idxFieldsJoint}`
+                                else
+                                    idxName = `idx_${tblName}_${idxFieldsJoint}`
+                            }
+
+                            if (idxWhere !== "")
+                                idxWhere = `WHERE ${idxWhere}`
+
+                            indexDef = `CREATE ${idxIsUnique} INDEX ${idxName} \n`
+                                    + `ON ${tblName} (${idxFields}) ${idxWhere};`
+                        }
+
+                        tx.executeSql(indexDef)
                     }
-                })
-            }
+                }
+
+                const currentTriggers = db.retrieveTableMeta(tx, tblName,
+                                                             "trigger")
+
+                for (var dt = 0; dt < currentTriggers.length; dt++) {
+                    const trigger = currentTriggers[dt]
+                    tx.executeSql(`DROP TRIGGER IF EXISTS ${trigger.name};`)
+                }
+
+                // @disable-check M126
+                if (triggers != null) {
+                    for (var ct = 0; ct < triggers.length; ct++) {
+                        const triggerDef = triggers[ct]
+                        tx.executeSql(triggerDef)
+                    }
+                }
+            })
         }
 
         return model
     },
-    "defineView": function (name, sql) {
+    "defineView": function (viewName, sql) {
         if (this.migrating) {
             this.transaction(function (db) {
-                db.executeSql("DROP VIEW IF EXISTS " + name)
-                db.executeSql("CREATE VIEW " + name + " AS " + sql)
+                db.executeSql(`DROP VIEW IF EXISTS ${viewName};`)
+                db.executeSql(`CREATE VIEW ${viewName} AS ${sql}`)
             })
         }
 
-        var fields = [] // this.retrieveFields(name)
+        var fields = [] // this.retrieveFields(viewName)
 
-        var view = new QMModel(this, name, fields)
+        var view = new QMModel(this, viewName, fields)
 
         return view
     },
@@ -543,6 +586,8 @@ QMModel.prototype = {
                 continue
             if (field === 'save')
                 continue
+            if (field === 'remove')
+                continue
             if (field === 'id')
                 continue
 
@@ -564,7 +609,7 @@ QMModel.prototype = {
         var values = []
         for (var field in obj) {
             var value = obj[field]
-            if (field === '_model' || field === 'save')
+            if (field === '_model' || field === 'save' || field === 'remove')
                 continue
             if (field === 'id' && isNull(value))
                 continue
@@ -858,9 +903,8 @@ QMModel.prototype = {
             if (idx2Dots > 0) {
                 field = field.substring(0, idx2Dots)
             }
-            field = field.toLowerCase()
 
-            if (field.startsWith('_') || field === 'save'
+            if (field.startsWith('_') || field === 'save' || field === 'remove'
                     || ((this._meta.fields.length !== 0)
                         && !(field in this._meta.fields)))
                 continue
@@ -903,6 +947,17 @@ QMObject.prototype = {
 
         this.id = this._model.insert(this)
         return this
+    },
+    "remove": function () {
+        if (this.id) {
+            var l_rowsAffected = this._model.filter({
+                                                        "id": this.id
+                                                    }).remove()
+            if (l_rowsAffected > 0)
+                return true
+        }
+
+        return false
     }
 }
 
