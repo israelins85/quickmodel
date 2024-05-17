@@ -259,8 +259,10 @@ QMDatabase.prototype = {
                     for (var i = 0; i < oldObjs.length; i++) {
                         for (var field in oldObjs[i]) {
                             if (field !== '_model' && field !== 'save'
+                                    && field !== 'insert' && field !== 'update'
                                     && field !== 'remove') {
                                 const curDef = fields[field]
+
                                 // @disable-check M126
                                 if (curDef == null)
                                     delete oldObjs[i][field]
@@ -586,6 +588,10 @@ QMModel.prototype = {
                 continue
             if (field === 'save')
                 continue
+            if (field === 'insert')
+                continue
+            if (field === 'update')
+                continue
             if (field === 'remove')
                 continue
             if (field === 'id')
@@ -609,7 +615,8 @@ QMModel.prototype = {
         var values = []
         for (var field in obj) {
             var value = obj[field]
-            if (field === '_model' || field === 'save' || field === 'remove')
+            if (field === '_model' || field === 'insert' || field === 'update'
+                    || field === 'save' || field === 'remove')
                 continue
             if (field === 'id' && isNull(value))
                 continue
@@ -904,9 +911,10 @@ QMModel.prototype = {
                 field = field.substring(0, idx2Dots)
             }
 
-            if (field.startsWith('_') || field === 'save' || field === 'remove'
-                    || ((this._meta.fields.length !== 0)
-                        && !(field in this._meta.fields)))
+            if (field.startsWith(
+                        '_') || field === 'insert' || field === 'update' || field
+                    === 'save' || field === 'remove' || ((this._meta.fields.length
+                                                          !== 0) && !(field in this._meta.fields)))
                 continue
 
             value = this._convertFromSqlValue(value, this._meta.fields[field])
@@ -930,23 +938,37 @@ function QMObject(model) {
     this.id = null
 }
 
+//Functions for single object
 QMObject.prototype = {
-    "save"//Functions for single object
-    : function (forceInsert) {
+    "update": function (filter) {
+        var l_rowsAffected = this._model.filter(filter ?? {
+                                                    "id": this.id
+                                                }).update(this)
+        return l_rowsAffected
+    },
+    "insert": function (id) {
+        if (id)
+            this.id = id
+
+        id = this._model.insert(this)
+
+        if (!this.id)
+            this.id = id
+
+        return this
+    },
+    "save": function (forceInsert) {
         if (typeof forceInsert === 'undefined') {
             forceInsert = false
         }
 
         if (this.id && !forceInsert) {
-            var l_rowsAffected = this._model.filter({
-                                                        "id": this.id
-                                                    }).update(this)
+            var l_rowsAffected = this.update()
             if (l_rowsAffected > 0)
                 return this
         }
 
-        this.id = this._model.insert(this)
-        return this
+        return this.insert()
     },
     "remove": function () {
         if (this.id) {
