@@ -516,6 +516,20 @@ QMModel.prototype = {
         this.filterConditions = conditions
         return this.get()
     },
+    "join": function (table, onFilter, type = "JOIN") {
+        if (!this.joins) {
+            this.joins = []
+        }
+        this.joins.push({
+                            "type": type,
+                            "table": table,
+                            "onFilter": onFilter
+                        })
+        return this
+    },
+    "leftJoin": function (table, onFilter) {
+        return this.join(table, onFilter, "LEFT JOIN")
+    },
     "order": function (sorters) {
         if (typeof sorters === 'string') {
             if (!this.sorters) {
@@ -539,7 +553,15 @@ QMModel.prototype = {
         return null
     },
     "all": function () {
-        var sql = "SELECT * FROM " + this._meta.tableName
+        var sql = `SELECT * FROM ${this._meta.tableName}`
+
+        if (this.joins) {
+            for (var idxJoin = 0; idxJoin < this.joins.length; idxJoin++) {
+                const jDef = this.joins[idxJoin]
+                sql += ` ${jDef["type"]} ${jDef["table"]} ON (${jDef["onFilter"]}) `
+            }
+        }
+
         sql += this._defineWhereClause()
 
         if (this.sorters && this.sorters.constructor === String) {
