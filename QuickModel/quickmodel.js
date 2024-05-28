@@ -1,6 +1,51 @@
 .pragma library
 .import QtQuick.LocalStorage 2.0 as Sql
 
+// supported operations
+var g_operatorMappings = {
+    "equals": {
+        "operator": "="
+    },
+    "not": {
+        "operator": "!="
+    },
+    "in": {
+        "operator": "IN",
+        "inPrefix": "(",
+        "inSuffix": ")"
+    },
+    "notIn": {
+        "operator": "NOT IN",
+        "inPrefix": "(",
+        "inSuffix": ")"
+    },
+    "lt": {
+        "operator": "<"
+    },
+    "lte": {
+        "operator": "<="
+    },
+    "gt": {
+        "operator": ">"
+    },
+    "gte": {
+        "operator": ">="
+    },
+    "contains": {
+        "operator": "LIKE",
+        "inPrefix": "%",
+        "inSuffix": "%"
+    },
+    "startsWith": {
+        "operator": "LIKE",
+        "inSuffix": "%"
+    },
+    "endsWith": {
+        "operator": "LIKE",
+        "inPrefix": "%"
+    }
+}
+
 
 /*
   new QMDatabase('myApp', '1.0')
@@ -86,6 +131,9 @@ QMDatabase.prototype = {
     },
     "fdDate": function (params) {
         return new QMField('DATE', params)
+    },
+    "fdTime": function (params) {
+        return new QMField('TIME', params)
     },
     "fdDateTime": function (params) {
         return new QMField('DATETIME', params)
@@ -666,8 +714,12 @@ QMModel.prototype = {
     },
     "remove": function (value) {
         if (value !== undefined) {
-            this.filterConditions = {
-                "id": value
+            if (this._typeof(value) === "object") {
+                this.filterConditions = value
+            } else {
+                this.filterConditions = {
+                    "id": value
+                }
             }
         }
 
@@ -800,52 +852,26 @@ QMModel.prototype = {
 
         if (l_typeof === "array") {
             ret += "IN "
-            ret += _arrayToSqlType(value)
+            ret += this._arrayToSqlType(value)
             return ret
         }
 
-        var operator
         var convertedValue
 
         if (l_typeof === "object") {
             var idx = 0
-            var outPrefix
-            var outSuffix
+
             for (var op in value) {
                 var v = value[op]
-                var inPrefix = ""
-                var inSuffix = ""
+                const opMap = g_operatorMappings[op]
+                const inPrefix = opMap.inPrefix ?? ""
+                const inSuffix = opMap.inSuffix ?? ""
+                const outPrefix = opMap.outPrefix ?? ""
+                const outSuffix = opMap.outSuffix ?? ""
+                const operator = opMap.operator ?? ""
 
-                if (op === "equals") {
-                    operator = "="
-                } else if (op === "not") {
-                    operator = "!="
-                } else if (op === "in") {
-                    operator = "IN"
-                    outPrefix = "("
-                    outSuffix = ")"
-                } else if (op === "notIn") {
-                    operator = "NOT IN"
-                    outPrefix = "("
-                    outSuffix = ")"
-                } else if (op === "lt") {
-                    operator = "<"
-                } else if (op === "lte") {
-                    operator = "<="
-                } else if (op === "gt") {
-                    operator = ">"
-                } else if (op === "gte") {
-                    operator = ">="
-                } else if (op === "contains") {
-                    operator = "LIKE"
-                    inPrefix = "%"
-                    inSuffix = "%"
-                } else if (op === "startsWith") {
-                    operator = "LIKE"
-                    inSuffix = "%"
-                } else if (op === "endsWith") {
-                    operator = "LIKE"
-                    inPrefix = "%"
+                if (operator === "") {
+                    throw new Error("invalid operator: " + op)
                 }
 
                 if (idx > 0) {
@@ -858,23 +884,20 @@ QMModel.prototype = {
                 ret += " "
                 ret += operator
                 ret += " "
-                if (outPrefix !== undefined) {
-                    ret += outPrefix
-                }
+                ret += outPrefix
                 ret += convertedValue
-                if (outSuffix !== undefined) {
-                    ret += outSuffix
-                }
+                ret += outSuffix
+
                 ++idx
             }
+        } else if (l_typeof === "null") {
+            ret += key
+            ret += " IS NULL"
         } else {
-            operator = "="
             convertedValue = this._convertToSqlType(value, l_typeof)
 
             ret += key
-            ret += " "
-            ret += operator
-            ret += " "
+            ret += " = "
             ret += convertedValue
         }
 
@@ -886,22 +909,35 @@ QMModel.prototype = {
         var idx = 0
         var ret = ""
 
-        for (var key in conditions) {
-            if (idx > 0) {
-                ret += joint
+        if (Array.isArray(conditions)) {
+            ret += "("
+            for (; idx < conditions.length; ++idx) {
+                var item = conditions[idx]
+                if (idx > 0) {
+                    ret += joint
+                }
+                ret += this._topLevelWhereClause(item, " AND ")
             }
-            var value = conditions[key]
+            ret += ")"
+        } else {
+            for (var key in conditions) {
+                if (idx > 0) {
+                    ret += joint
+                }
+                var value = conditions[key]
 
-            if (key === "AND") {
-                ret += "(" + this._topLevelWhereClause(value, " AND ") + ")"
-            } else if (key === "NOT") {
-                ret += "NOT (" + this._topLevelWhereClause(value, " AND ") + ")"
-            } else if (key === "OR") {
-                ret += "(" + this._topLevelWhereClause(value, " OR ") + ")"
-            } else {
-                ret += this._fieldWhereClause(key, value)
+                if (key === "AND") {
+                    ret += this._topLevelWhereClause(value, " AND ")
+                } else if (key === "NOT") {
+                    ret += "NOT (" + this._topLevelWhereClause(value,
+                                                               " AND ") + ")"
+                } else if (key === "OR") {
+                    ret += this._topLevelWhereClause(value, " OR ")
+                } else {
+                    ret += this._fieldWhereClause(key, value)
+                }
+                ++idx
             }
-            ++idx
         }
 
         return ret
