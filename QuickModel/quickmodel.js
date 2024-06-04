@@ -62,6 +62,8 @@ function QMDatabase(appName, version) {
     var DbVersion
     var newMetaVersion = "2"
 
+    this.models = {}
+
     if (this.conn.version !== newMetaVersion) {
         this.conn = this.conn.changeVersion(this.conn.version, newMetaVersion,
                                             (function (tx) {
@@ -226,9 +228,10 @@ QMDatabase.prototype = {
 
         var fields = {}
         for (var idx = 0; idx < rs.rows.length; idx++) {
+            const row = rs.rows[idx]
             var properties = {}
-            properties.type = rs.rows[idx].type
-            if (rs.rows[idx].notnull !== 0) {
+            properties.type = row.type
+            if (row.notnull !== 0) {
                 if (typeof properties.params === 'undefined')
                     properties.params = {}
 
@@ -249,6 +252,9 @@ QMDatabase.prototype = {
             ret.push(rs.rows[i])
         }
         return ret
+    },
+    "retrieveModel": function (tblName) {
+        return this.models[tblName.toLowerCase()]
     },
     "defineModel": function (tblName, definition) {
         const db = this
@@ -308,7 +314,8 @@ QMDatabase.prototype = {
                         for (var field in oldObjs[i]) {
                             if (field !== '_model' && field !== 'save'
                                     && field !== 'insert' && field !== 'update'
-                                    && field !== 'remove') {
+                                    && field !== 'remove'
+                                    && field !== 'values') {
                                 const curDef = fields[field]
 
                                 // @disable-check M126
@@ -379,6 +386,7 @@ QMDatabase.prototype = {
             })
         }
 
+        this.models[tblName.toLowerCase()] = model
         return model
     },
     "defineView": function (viewName, sql) {
@@ -632,22 +640,25 @@ QMModel.prototype = {
         var sql = "UPDATE " + this._meta.tableName + " SET "
         var idx = 0
         for (var field in obj) {
-            if (field === '_model')
-                continue
-            if (field === 'save')
-                continue
-            if (field === 'insert')
-                continue
-            if (field === 'update')
-                continue
-            if (field === 'remove')
-                continue
             if (field === 'id')
                 continue
 
+            var value = obj[field]
+
+            if (typeof value === "function")
+                continue
+
+            const meta = this._fieldMeta(field)
+            // @disable-check M126
+            if (meta == null) {
+                throw `Unknow field ${field}`
+            }
+
+            value = this._convertToSqlType(obj[field], meta)
+
             if (idx > 0)
                 sql += ", "
-            sql += field + " = " + this._convertToSqlType(obj[field]) + ""
+            sql += `${field} = ${value}`
             idx++
         }
         sql += this._defineWhereClause(this.filterConditions)
@@ -663,11 +674,19 @@ QMModel.prototype = {
         var values = []
         for (var field in obj) {
             var value = obj[field]
-            if (field === '_model' || field === 'insert' || field === 'update'
-                    || field === 'save' || field === 'remove')
+
+            if (typeof value === "function")
                 continue
+
+            const meta = this._fieldMeta(field)
+            // @disable-check M126
+            if (meta == null) {
+                throw `Unknow field ${field}`
+            }
+
             if (field === 'id' && isNull(value))
                 continue
+
             if (value === undefined) {
                 continue
             }
@@ -675,7 +694,7 @@ QMModel.prototype = {
             if (value === null) {
                 values.push('NULL')
             } else {
-                values.push(this._convertToSqlType(value))
+                values.push(this._convertToSqlType(value, meta))
             }
         }
         sql += fields.join(', ')
@@ -708,6 +727,15 @@ QMModel.prototype = {
 
         return rs.rowsAffected
     },
+    "_fieldMeta": function (field) {
+        field = field.toLowerCase()
+        for (var f in this._meta.fields) {
+            if (f.toLowerCase() === field)
+                return this._meta.fields[f]
+        }
+
+        return undefined
+    },
     "_typeof": function (value) {
         var l_type = typeof value
 
@@ -731,12 +759,9 @@ QMModel.prototype = {
 
         return l_type
     },
-    "_convertToSqlType": function (value, type) {
-        var l_type = type
-
-        // @disable-check M126
-        if (l_type == null)
-            l_type = this._typeof(value)
+    "_convertToSqlType": function (value, definition) {
+        var l_type = this._typeof(value)
+        var l_desiredType = definition?.type
 
         if (l_type === "array" || l_type === "object") {
             value = JSON.stringify(value)
@@ -749,11 +774,19 @@ QMModel.prototype = {
         }
         if (l_type === 'date') {
             if (isNaN(value)) {
-                value = 'null'
+                return 'null'
+            }
+
+            if (l_desiredType === "DATE") {
+                const year = value.getFullYear()
+                const month = value.getMonth() + 1
+                const day = value.getDate()
+
+                value = `${year}-${month < 10 ? `0${month}` : month}-${day < 10 ? `0${day}` : day}`
             } else {
                 value = value.toISOString()
-                l_type = 'string'
             }
+            l_type = 'string'
         }
         if (l_type === 'string') {
             value = "'" + value.replace("'", "''") + "'"
@@ -856,7 +889,8 @@ QMModel.prototype = {
                     ret += ") AND ("
                 }
 
-                convertedValue = this._convertToSqlType(inPrefix + v + inSuffix)
+                convertedValue = this._convertToSqlType(
+                            inPrefix + v + inSuffix, this._fieldMeta(key))
 
                 ret += key
                 ret += " "
@@ -872,7 +906,7 @@ QMModel.prototype = {
             ret += key
             ret += " IS NULL"
         } else {
-            convertedValue = this._convertToSqlType(value, l_typeof)
+            convertedValue = this._convertToSqlType(value, this._fieldMeta(key))
 
             ret += key
             ret += " = "
@@ -947,13 +981,15 @@ QMModel.prototype = {
                 field = field.substring(0, idx2Dots)
             }
 
-            if (field.startsWith(
-                        '_') || field === 'insert' || field === 'update' || field
-                    === 'save' || field === 'remove' || ((this._meta.fields.length
-                                                          !== 0) && !(field in this._meta.fields)))
+            if (typeof value === "function")
                 continue
 
-            value = this._convertFromSqlValue(value, this._meta.fields[field])
+            const meta = this._fieldMeta(field)
+            // @disable-check M126
+            if (meta == null)
+                continue
+
+            value = this._convertFromSqlValue(value, meta)
 
             if (!isNull(obj[field]) && isNull(value))
                 continue
@@ -1016,6 +1052,27 @@ QMObject.prototype = {
         }
 
         return false
+    },
+    "values": function () {
+        const ret = {}
+        const _fields = this._model._meta.fields
+
+        for (var field in this) {
+            var value = this[field]
+
+            if (typeof value === "function")
+                continue
+
+            if (_fields.length !== 0) {
+                const exists = (field in _fields)
+                if (!exists)
+                    continue
+            }
+
+            ret[field] = value
+        }
+
+        return ret
     }
 }
 
