@@ -828,13 +828,9 @@ QMModel.prototype = {
                        || (l_desiredType === 'DATETIME')) {
                 var rxDatePattern = /^\d{4}-\d{2}-\d{2}$/
                 if (value.match(rxDatePattern)) {
-                    // é somente a data
-                    value = new Date(value)
-                    var diff = value.getTimezoneOffset()
-                    value = new Date(value.getTime() + diff * 60000)
-                } else {
-                    value = new Date(value)
+                    value += "T00:00:00Z"
                 }
+                value = new Date(value)
             } else if (l_desiredType === 'BOOLEAN') {
                 switch (value) {
                 case "true":
