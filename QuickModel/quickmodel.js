@@ -642,6 +642,8 @@ QMModel.prototype = {
         for (var field in obj) {
             if (field === 'id')
                 continue
+            if (field === '_model')
+                continue
 
             var value = obj[field]
 
@@ -673,6 +675,9 @@ QMModel.prototype = {
         var fields = []
         var values = []
         for (var field in obj) {
+            if (field === '_model')
+                continue
+
             var value = obj[field]
 
             if (typeof value === "function")
