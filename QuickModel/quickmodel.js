@@ -312,16 +312,14 @@ QMDatabase.prototype = {
 
                     for (var i = 0; i < oldObjs.length; i++) {
                         for (var field in oldObjs[i]) {
-                            if (field !== '_model' && field !== 'save'
-                                    && field !== 'insert' && field !== 'update'
-                                    && field !== 'remove'
-                                    && field !== 'values') {
-                                const curDef = fields[field]
+                            if (field.startsWith('_'))
+                                continue
 
-                                // @disable-check M126
-                                if (curDef == null)
-                                    delete oldObjs[i][field]
-                            }
+                            const curDef = fields[field]
+
+                            // @disable-check M126
+                            if (curDef == null)
+                                delete oldObjs[i][field]
                         }
                         oldObjs.tx = tx
                         oldObjs[i].save(true)
@@ -424,7 +422,11 @@ QMDatabase.prototype = {
             this.conn.transaction((function (tx) {
                 this.tx = tx
 
+                console.log("Run SQL: " + "BEGIN;")
+
                 callback(this)
+
+                console.log("Run SQL: " + "COMMIT;")
 
                 this.tx = null
             }).bind(this))
@@ -642,7 +644,7 @@ QMModel.prototype = {
         for (var field in obj) {
             if (field === 'id')
                 continue
-            if (field === '_model')
+            if (field.startsWith('_'))
                 continue
 
             var value = obj[field]
@@ -675,7 +677,7 @@ QMModel.prototype = {
         var fields = []
         var values = []
         for (var field in obj) {
-            if (field === '_model')
+            if (field.startsWith('_'))
                 continue
 
             var value = obj[field]
