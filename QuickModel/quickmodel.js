@@ -701,7 +701,8 @@ QMModel.prototype = {
             if (value === null) {
                 values.push('NULL')
             } else {
-                values.push(this._convertToSqlType(value, meta))
+                value = this._convertToSqlType(value, meta)
+                values.push(value)
             }
         }
         sql += fields.join(', ')
@@ -1019,6 +1020,10 @@ QMObject.prototype = {
         var l_rowsAffected = this._model.filter(filter ?? {
                                                     "id": this.id
                                                 }).update(this)
+        return l_rowsAffected
+    },
+    "upsert": function (filter) {
+        var l_rowsAffected = this._model.upsert(this)
         return l_rowsAffected
     },
     "insert": function (id) {
