@@ -1081,6 +1081,20 @@ QMObject.prototype = {
         }
 
         return ret
+    },
+    "setValues": function (values) {
+        const _fields = this._model._meta.fields
+
+        for (var field in values) {
+            var value = values[field]
+
+            if (typeof value === "function")
+                continue
+
+            this[field] = value
+        }
+
+        return this
     }
 }
 
