@@ -596,6 +596,25 @@ QMModel.prototype = {
 
         return null
     },
+    "count": function () {
+        var c = -1
+        var sql = "SELECT COUNT(*) as count FROM " + this._meta.tableName
+        sql += this._defineWhereClause()
+
+        var rs = this._meta.db.executeSql(sql)
+
+        //console.log("RESULT SET: " + rs);
+        for (var i = 0; i < rs.rows.length; i++) {
+            var item = rs.rows.item(i)
+            c = item.count
+        }
+
+        this.filterConditions = {}
+        this.limiter = null
+        this.sorters = null
+
+        return c
+    },
     "all": function () {
         var sql = "SELECT * FROM " + this._meta.tableName
         sql += this._defineWhereClause()
