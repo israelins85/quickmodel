@@ -912,8 +912,17 @@ QMModel.prototype = {
                     ret += ") AND ("
                 }
 
-                convertedValue = this._convertToSqlType(
-                            inPrefix + v + inSuffix, this._fieldMeta(key))
+                convertedValue = this._convertToSqlType(v, this._fieldMeta(key))
+
+                if (inPrefix !== "") {
+                    convertedValue = convertedValue.slice(0, 1) //br
+                            + inPrefix + convertedValue.slice(1)
+                }
+
+                if (inSuffix !== "") {
+                    convertedValue = convertedValue.slice(0, -1) //br
+                            + inSuffix + convertedValue.slice(-1)
+                }
 
                 ret += key
                 ret += " "
