@@ -755,6 +755,12 @@ QMModel.prototype = {
         return rs.rowsAffected
     },
     "_fieldMeta": function (field) {
+        const meta = this._meta.fields[field]
+
+        // @disable-check M126
+        if (meta != null)
+            return meta
+
         field = field.toLowerCase()
         for (var f in this._meta.fields) {
             if (f.toLowerCase() === field)
