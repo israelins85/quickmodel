@@ -31,6 +31,9 @@ var g_operatorMappings = {
     "gte": {
         "operator": ">="
     },
+    "like": {
+        "operator": "LIKE"
+    },
     "contains": {
         "operator": "LIKE",
         "inPrefix": "%",
