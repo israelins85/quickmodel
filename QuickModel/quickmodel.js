@@ -772,6 +772,15 @@ QMModel.prototype = {
 
         return undefined
     },
+    "_fieldIsValid": function (field) {
+        if (this._meta.fields.length === 0)
+            return true
+
+        const meta = this._fieldMeta(field)
+
+        // @disable-check M126
+        return (meta != null)
+    },
     "_typeof": function (value) {
         var l_type = typeof value
 
@@ -1100,7 +1109,6 @@ QMObject.prototype = {
     },
     "values": function () {
         const ret = {}
-        const _fields = this._model._meta.fields
 
         for (var field in this) {
             var value = this[field]
@@ -1108,10 +1116,8 @@ QMObject.prototype = {
             if (typeof value === "function")
                 continue
 
-            if (_fields.length !== 0) {
-                const exists = (field in _fields)
-                if (!exists)
-                    continue
+            if (!this._model._fieldIsValid(field)) {
+                continue
             }
 
             ret[field] = value
@@ -1127,6 +1133,10 @@ QMObject.prototype = {
 
             if (typeof value === "function")
                 continue
+
+            if (!this._model._fieldIsValid(field)) {
+                continue
+            }
 
             this[field] = value
         }
