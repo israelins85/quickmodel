@@ -146,6 +146,9 @@ QMDatabase.prototype = {
     "fdBoolean": function (params) {
         return new QMField('BOOLEAN', params)
     },
+    "fdCalculated": function (params) {
+        return new QMField('CALCULATED', params)
+    },
     "fdPK": function (type, params) {
         if (typeof type !== 'string') {
             // @disable-check M126
@@ -279,6 +282,8 @@ QMDatabase.prototype = {
 
             for (var column in fields) {
                 var definitions = fields[column]
+                if (definitions.type === "CALCULATED")
+                    continue
                 var field_data = db._defineField(column, definitions)
                 if (idx > 0)
                     sql_create += ", "
@@ -560,13 +565,13 @@ function isObjectEquals(x, y) {
 }
 
 QMModel.prototype = {
-    "create": function (data) {
-        var obj = this.makeObject(data)
+    "create": function (data, needCalculated = true) {
+        var obj = this.makeObject(data, false)
         var insertId = this.insert(obj)
 
         var objs = this.filter({
                                    "id": insertId
-                               }).all()
+                               }).all(needCalculated)
         if (objs.length > 0) {
             return objs[0]
         }
@@ -622,7 +627,7 @@ QMModel.prototype = {
 
         return c
     },
-    "all": function () {
+    "all": function (needCalculated = true) {
         var sql = "SELECT * FROM " + this._meta.tableName
         sql += this._defineWhereClause()
 
@@ -654,7 +659,7 @@ QMModel.prototype = {
         var objs = []
         for (var i = 0; i < rs.rows.length; i++) {
             var item = rs.rows.item(i)
-            var obj = this.makeObject(item)
+            var obj = this.makeObject(item, needCalculated)
             objs.push(obj)
         }
 
@@ -680,7 +685,7 @@ QMModel.prototype = {
 
             const meta = this._fieldMeta(field)
             // @disable-check M126
-            if (meta == null) {
+            if (meta == null || meta.type === "CALCULATED") {
                 throw `Unknow field ${field}`
             }
 
@@ -713,7 +718,7 @@ QMModel.prototype = {
 
             const meta = this._fieldMeta(field)
             // @disable-check M126
-            if (meta == null) {
+            if (meta == null || meta.type === "CALCULATED") {
                 throw `Unknow field ${field}`
             }
 
@@ -781,9 +786,14 @@ QMModel.prototype = {
             return true
 
         const meta = this._fieldMeta(field)
-
         // @disable-check M126
-        return (meta != null)
+        if (meta == null)
+            return false
+
+        if (meta.type === "CALCULATED")
+            return false
+
+        return true
     },
     "_typeof": function (value) {
         var l_type = typeof value
@@ -1026,8 +1036,9 @@ QMModel.prototype = {
 
         return sql
     },
-    "makeObject": function (values) {
+    "makeObject": function (values, needCalculated = true) {
         var obj = new QMObject(this)
+
         for (var field in values) {
             var value = values[field]
             var idx2Dots = field.indexOf(':')
@@ -1050,6 +1061,20 @@ QMModel.prototype = {
 
             obj[field] = value
         }
+
+        if (needCalculated) {
+            for (var fm in this._meta.fields) {
+                const meta = this._meta.fields[fm]
+                if (meta.type !== "CALCULATED")
+                    continue
+
+                obj[fm] = function () {
+                    return meta.params(obj)
+                }
+            }
+        }
+
+        // TODO: add calculated fields
         return obj
     }
 }
