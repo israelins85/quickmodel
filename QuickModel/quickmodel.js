@@ -423,15 +423,19 @@ QMDatabase.prototype = {
             callback(this)
         } else {
             this.conn.transaction((function (tx) {
-                this.tx = tx
-
                 console.log("Run SQL: " + "BEGIN;")
 
-                callback(this)
+                try {
+                    this.tx = tx
+                    callback(this)
+                    this.tx = null
+                } catch (e) {
+                    console.log("Run SQL: " + "ROLLBACK;")
+                    this.tx = null
+                    throw e
+                }
 
                 console.log("Run SQL: " + "COMMIT;")
-
-                this.tx = null
             }).bind(this))
         }
     },
