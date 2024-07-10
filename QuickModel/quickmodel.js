@@ -63,7 +63,7 @@ function QMDatabase(appName, version) {
 
     // to control metadata (__DbVersion__) changes only
     var DbVersion
-    var newMetaVersion = "2"
+    var newMetaVersion = "3"
 
     this.models = {}
 
@@ -457,6 +457,20 @@ QMDatabase.prototype = {
     },
     "confirmMigration": function () {
         if (this.migrating) {
+            var sql = "SELECT name FROM sqlite_master WHERE type = 'table';"
+            var rs = this.executeSql(sql)
+
+            var ret = []
+            for (var i = 0; i < rs.rows.length; ++i) {
+                const row = rs.rows[i]
+                const tableName = row.name
+                const model = this.retrieveModel(tableName)
+                // @disable-check M126
+                if (model != null)
+                    continue
+                this.executeSql(`DROP TABLE ${tableName};`)
+            }
+
             this.dbVersion.migrated = 1
             this.dbVersion.save()
             this.migrating = false
