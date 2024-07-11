@@ -412,7 +412,7 @@ QMDatabase.prototype = {
     "executeSql": function (sql) {
         var rs
 
-        console.log("Run SQL: " + sql)
+        // console.log("Run SQL: " + sql)
         if (!isNull(this.tx)) {
             rs = this.tx.executeSql(sql)
         } else {
@@ -428,19 +428,19 @@ QMDatabase.prototype = {
             callback(this)
         } else {
             this.conn.transaction((function (tx) {
-                console.log("Run SQL: " + "BEGIN;")
 
+                // console.log("Run SQL: " + "BEGIN;")
                 try {
                     this.tx = tx
                     callback(this)
                     this.tx = null
                 } catch (e) {
-                    console.log("Run SQL: " + "ROLLBACK;")
+                    // console.log("Run SQL: " + "ROLLBACK;")
                     this.tx = null
                     throw e
                 }
 
-                console.log("Run SQL: " + "COMMIT;")
+                // console.log("Run SQL: " + "COMMIT;")
             }).bind(this))
         }
     },
