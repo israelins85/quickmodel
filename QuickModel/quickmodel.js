@@ -56,6 +56,7 @@ var g_operatorMappings = {
   create: returns an object with the properties
   */
 function QMDatabase(appName, version) {
+    this.printDebugLogs = false
     this.migrating = false
     //Tables to handle version control
     this.conn = Sql.LocalStorage.openDatabaseSync(appName + '_db', "",
@@ -412,7 +413,9 @@ QMDatabase.prototype = {
     "executeSql": function (sql) {
         var rs
 
-        // console.log("Run SQL: " + sql)
+        if (this.printDebugLogs)
+            console.log("Run SQL: " + sql)
+
         if (!isNull(this.tx)) {
             rs = this.tx.executeSql(sql)
         } else {
@@ -428,19 +431,23 @@ QMDatabase.prototype = {
             callback(this)
         } else {
             this.conn.transaction((function (tx) {
+                if (this.printDebugLogs)
+                    console.log("Run SQL: " + "BEGIN;")
 
-                // console.log("Run SQL: " + "BEGIN;")
                 try {
                     this.tx = tx
                     callback(this)
                     this.tx = null
                 } catch (e) {
-                    // console.log("Run SQL: " + "ROLLBACK;")
+                    if (this.printDebugLogs)
+                        console.log("Run SQL: " + "ROLLBACK;")
+
                     this.tx = null
                     throw e
                 }
 
-                // console.log("Run SQL: " + "COMMIT;")
+                if (this.printDebugLogs)
+                    console.log("Run SQL: " + "COMMIT;")
             }).bind(this))
         }
     },
