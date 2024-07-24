@@ -1070,12 +1070,14 @@ QMModel.prototype = {
             if (typeof value === "function")
                 continue
 
-            const meta = this._fieldMeta(field)
-            // @disable-check M126
-            if (meta == null)
-                continue
+            let meta1 = null
+            if (this._meta.fields.length !== 0) {
+                meta1 = this._fieldMeta(field)
+                if (meta1 == null)
+                    continue
+            }
 
-            value = this._convertFromSqlValue(value, meta)
+            value = this._convertFromSqlValue(value, meta1)
 
             if (!isNull(obj[field]) && isNull(value))
                 continue
