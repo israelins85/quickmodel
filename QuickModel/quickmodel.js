@@ -858,9 +858,9 @@ QMModel.prototype = {
             }
 
             if (l_desiredType === "DATE") {
-                const year = value.getFullYear()
-                const month = value.getMonth() + 1
-                const day = value.getDate()
+                const year = value.getUTCFullYear()
+                const month = value.getUTCMonth() + 1
+                const day = value.getUTCDate()
 
                 value = `${year}-${month < 10 ? `0${month}` : month}-${day < 10 ? `0${day}` : day}`
             } else {
