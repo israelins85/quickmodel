@@ -251,7 +251,7 @@ QMDatabase.prototype = {
         return fields
     },
     "retrieveTableMeta": function (db, tblName, type) {
-        var sql = `SELECT * FROM sqlite_master WHERE type = '${type}' AND tbl_name = '${tblName}';`
+        var sql = `SELECT * FROM sqlite_master WHERE type = '${type}' AND tbl_name LIKE '${tblName}';`
         var rs = db.executeSql(sql)
 
         var ret = []
