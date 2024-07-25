@@ -114,6 +114,35 @@ function QMDatabase(appName, version) {
 
 QMDatabase.prototype = {
     "constructor": QMDatabase,
+    "reset": function () {
+        const _this = this
+        this.transaction(function (tx) {
+            const keys = Object.keys(_this.models)
+            for (var i = 0; i < keys.length; ++i) {
+                const tableName = keys[i]
+
+                if (tableName === "__dbversion__")
+                    continue
+
+                const model = _this.models[tableName]
+
+                const currentTriggers = _this.retrieveTableMeta(tx, tableName,
+                                                                "trigger")
+
+                for (var dt = 0; dt < currentTriggers.length; dt++) {
+                    const trigger = currentTriggers[dt]
+                    tx.executeSql(`DROP TRIGGER IF EXISTS ${trigger.name};`)
+                }
+
+                model.remove()
+
+                for (var rt = 0; rt < currentTriggers.length; rt++) {
+                    const trigger = currentTriggers[rt]
+                    tx.executeSql(trigger.sql)
+                }
+            }
+        })
+    },
     "fdCustom": function (type, params) {
         return new QMField(type, params)
     },
