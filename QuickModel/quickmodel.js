@@ -939,7 +939,7 @@ QMModel.prototype = {
                        || (l_desiredType === 'DATETIME')) {
                 var rxDatePattern = /^\d{4}-\d{2}-\d{2}$/
                 if (value.match(rxDatePattern)) {
-                    value += "T00:00:00Z"
+                    value += "T00:00:00"
                 }
                 value = new Date(value)
             } else if (l_desiredType === 'BOOLEAN') {
