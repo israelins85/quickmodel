@@ -887,9 +887,16 @@ QMModel.prototype = {
             }
 
             if (l_desiredType === "DATE") {
-                const year = value.getUTCFullYear()
-                const month = value.getUTCMonth() + 1
-                const day = value.getUTCDate()
+                let year = value.getUTCFullYear()
+                let month = value.getUTCMonth() + 1
+                let day = value.getUTCDate()
+
+                // date is on local timezone
+                if (value.getHours() === 0 && value.getMinutes() === 0) {
+                    year = value.getFullYear()
+                    month = value.getMonth() + 1
+                    day = value.getDate()
+                }
 
                 value = `${year}-${month < 10 ? `0${month}` : month}-${day < 10 ? `0${day}` : day}`
             } else {
