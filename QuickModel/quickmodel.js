@@ -1195,7 +1195,7 @@ QMObject.prototype = {
 
         return false
     },
-    "values": function () {
+    "values": function (toJson = false) {
         const ret = {}
 
         for (var field in this) {
@@ -1204,8 +1204,24 @@ QMObject.prototype = {
             if (typeof value === "function")
                 continue
 
-            if (!this._model._fieldIsValid(field)) {
-                continue
+            let meta = null
+            if (this._model._meta.fields.length !== 0) {
+                meta = this._model._fieldMeta(field)
+                if (meta == null)
+                    continue
+                if (meta.type === "CALCULATED")
+                    return false
+            }
+
+            if (toJson) {
+                const type = this._model._typeof(value)
+                if (type === "date") {
+                    if (meta.type === "DATE") {
+                        let localOffset = value.getTimezoneOffset()
+                        value.setMinutes(value.getMinutes() - localOffset)
+                    }
+                    value = value.toISOString()
+                }
             }
 
             ret[field] = value
