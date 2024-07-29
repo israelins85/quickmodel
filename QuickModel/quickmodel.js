@@ -11,13 +11,15 @@ var g_operatorMappings = {
     },
     "in": {
         "operator": "IN",
-        "inPrefix": "(",
-        "inSuffix": ")"
+        "array": true,
+        "outPrefix": "(",
+        "outSuffix": ")"
     },
     "notIn": {
         "operator": "NOT IN",
-        "inPrefix": "(",
-        "inSuffix": ")"
+        "array": true,
+        "outPrefix": "(",
+        "outSuffix": ")"
     },
     "lt": {
         "operator": "<"
@@ -1001,7 +1003,14 @@ QMModel.prototype = {
                     ret += ") AND ("
                 }
 
-                convertedValue = this._convertToSqlType(v, this._fieldMeta(key))
+                const meta = this._fieldMeta(key)
+
+                if (opMap.array) {
+                    convertedValue = v.map(e => this._convertToSqlType(
+                                               e, meta)).join(",")
+                } else {
+                    convertedValue = this._convertToSqlType(v, meta)
+                }
 
                 if (inPrefix !== "") {
                     convertedValue = convertedValue.slice(0, 1) //br
