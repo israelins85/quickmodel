@@ -962,7 +962,12 @@ QMModel.prototype = {
                 }
             } else if ((l_desiredType === "ARRAY"
                         || l_desiredType === "JSON")) {
-                value = JSON.parse(value)
+                try {
+                    const obj = JSON.parse(value)
+                    value = obj
+                } catch (_e) {
+
+                }
             }
         }
 
