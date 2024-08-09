@@ -874,7 +874,8 @@ QMModel.prototype = {
         var l_type = this._typeof(value)
         var l_desiredType = definition?.type
 
-        if (l_type === "array" || l_type === "object") {
+        if (l_type === "array" || l_type === "object"
+                || l_desiredType === "JSON") {
             value = JSON.stringify(value)
             l_type = 'string'
         }
@@ -883,6 +884,7 @@ QMModel.prototype = {
             value = value ? 1 : 0
             l_type = 'number'
         }
+
         if (l_type === 'date') {
             if (isNaN(value)) {
                 return 'null'
@@ -906,6 +908,7 @@ QMModel.prototype = {
             }
             l_type = 'string'
         }
+
         if (l_type === 'string') {
             value = "'" + value.replace("'", "''") + "'"
         }
