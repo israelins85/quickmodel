@@ -474,6 +474,7 @@ QMDatabase.prototype = {
                         console.log("Run SQL: " + "ROLLBACK;")
 
                     this.tx = null
+                    console.exception(e)
                     throw e
                 }
 
@@ -738,7 +739,8 @@ QMModel.prototype = {
             const meta = this._fieldMeta(field)
             // @disable-check M126
             if (meta == null || meta.type === "CALCULATED") {
-                throw `Unknow field ${field}`
+                console.exception(`Unknow field ${field}`)
+                throw new Error(`Unknow field ${field}`)
             }
 
             value = this._convertToSqlType(obj[field], meta)
@@ -771,7 +773,8 @@ QMModel.prototype = {
             const meta = this._fieldMeta(field)
             // @disable-check M126
             if (meta == null || meta.type === "CALCULATED") {
-                throw `Unknow field ${field}`
+                console.exception(`Unknow field ${field}`)
+                throw new Error(`Unknow field ${field}`)
             }
 
             if (field === 'id' && isNull(value))
@@ -1004,7 +1007,8 @@ QMModel.prototype = {
                 const operator = opMap.operator ?? ""
 
                 if (operator === "") {
-                    throw new Error("invalid operator: " + op)
+                    console.exception("invalid operator: " + op)
+                    throw new Error(`Unknow field ${field}`)
                 }
 
                 if (idx > 0) {
