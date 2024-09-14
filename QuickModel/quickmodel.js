@@ -1064,27 +1064,29 @@ QMModel.prototype = {
         var ret = ""
 
         if (Array.isArray(conditions)) {
-            ret += "("
             for (; idx < conditions.length; ++idx) {
                 var item = conditions[idx]
                 if (idx > 0) {
                     ret += joint
+                } else {
+                    ret += "("
                 }
+
                 ret += this._topLevelWhereClause(item, " AND ")
             }
-            ret += ")"
         } else {
             for (var key in conditions) {
                 if (idx > 0) {
                     ret += joint
+                } else {
+                    ret += "("
                 }
                 var value = conditions[key]
 
                 if (key === "AND") {
                     ret += this._topLevelWhereClause(value, " AND ")
                 } else if (key === "NOT") {
-                    ret += "NOT (" + this._topLevelWhereClause(value,
-                                                               " AND ") + ")"
+                    ret += "NOT " + this._topLevelWhereClause(value, " AND ")
                 } else if (key === "OR") {
                     ret += this._topLevelWhereClause(value, " OR ")
                 } else {
@@ -1093,6 +1095,9 @@ QMModel.prototype = {
                 ++idx
             }
         }
+
+        if (ret.length > 0)
+            ret += ")"
 
         return ret
     },
