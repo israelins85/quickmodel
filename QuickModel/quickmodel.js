@@ -33,21 +33,21 @@ var g_operatorMappings = {
     "gte": {
         "operator": ">="
     },
-    "like": {
-        "operator": "LIKE"
-    },
     "contains": {
-        "operator": "LIKE",
-        "inPrefix": "%",
-        "inSuffix": "%"
+        "operator": "GLOB",
+        "inPrefix": "*",
+        "inSuffix": "*",
+        "mode": "sensitive"
     },
     "startsWith": {
-        "operator": "LIKE",
-        "inSuffix": "%"
+        "operator": "GLOB",
+        "inSuffix": "*",
+        "mode": "sensitive"
     },
     "endsWith": {
-        "operator": "LIKE",
-        "inPrefix": "%"
+        "operator": "GLOB",
+        "inPrefix": "*",
+        "mode": "sensitive"
     }
 }
 
@@ -873,6 +873,46 @@ QMModel.prototype = {
 
         return l_type
     },
+    "_convertToGlobExpression": function (value, insensitive) {
+        var charsToHandle
+        var ret = ""
+
+        if (insensitive) {
+            charsToHandle = [// br
+                             "aáàåãäæAÁÀÅÃÄÆ", "eéèëEÉÈË", "iíîìïIÍÎÌÏ", // br
+                             "oóôòøõöOÓÔÒØÕÖ", "uúûùüUÚÛÙÜ", "cçCÇ", "nñNÑ", "yýÿYÝŸ" // br
+                    ]
+        } else {
+            charsToHandle = ["aáàåãäæ", "AÁÀÅÃÄÆ", "eéèë", "EÉÈË", "iíîìï", "IÍÎÌÏ", // br
+                             "oóôòøõö", "OÓÔÒØÕÖ", "uúûùü", "UÚÛÙÜ", "cç", "CÇ", // br
+                             "nñ", "NÑ", "yýÿ", "YÝŸ" // br
+                    ]
+        }
+
+        for (var i = 0; i < value.length; ++i) {
+            const char = value[i]
+            var found = false
+
+            if (char === " " || char === "%") {
+                if (!ret.endsWith("*"))
+                    ret += "*"
+                continue
+            }
+
+            for (var j = 0; j < charsToHandle.length; ++j) {
+                const chars = charsToHandle[j]
+                if (chars.indexOf(char) === -1)
+                    continue
+                ret += `[${chars}]`
+                found = true
+                break
+            }
+            if (!found)
+                ret += char
+        }
+
+        return ret
+    },
     "_convertToSqlType": function (value, definition) {
         var l_type = this._typeof(value)
         var l_desiredType = definition?.type
@@ -1000,11 +1040,29 @@ QMModel.prototype = {
             for (var op in value) {
                 var v = value[op]
                 const opMap = g_operatorMappings[op]
+
+                // @disable-check M126
+                if (opMap == null) {
+                    if (op === "mode") {
+                        continue
+                    }
+                    console.exception("invalid operator: " + op)
+                    throw new Error(`Unknow field ${field}`)
+                }
+
+                const operator = opMap.operator ?? ""
                 const inPrefix = opMap.inPrefix ?? ""
                 const inSuffix = opMap.inSuffix ?? ""
-                const outPrefix = opMap.outPrefix ?? ""
-                const outSuffix = opMap.outSuffix ?? ""
-                const operator = opMap.operator ?? ""
+                var outPrefix = opMap.outPrefix ?? ""
+                var outSuffix = opMap.outSuffix ?? ""
+                var keyPrefix = ""
+                var keySuffix = ""
+                var mode = opMap.mode
+
+                // @disable-check M126
+                if (mode != null) {
+                    mode = value["mode"] ?? mode
+                }
 
                 if (operator === "") {
                     console.exception("invalid operator: " + op)
@@ -1024,6 +1082,11 @@ QMModel.prototype = {
                     convertedValue = this._convertToSqlType(v, meta)
                 }
 
+                if (operator === "GLOB") {
+                    convertedValue = this._convertToGlobExpression(
+                                convertedValue, mode === "insensitive")
+                }
+
                 if (inPrefix !== "") {
                     convertedValue = convertedValue.slice(0, 1) //br
                             + inPrefix + convertedValue.slice(1)
@@ -1034,7 +1097,16 @@ QMModel.prototype = {
                             + inSuffix + convertedValue.slice(-1)
                 }
 
+                if (mode === "insensitive") {
+                    keyPrefix = "UPPER("
+                    keySuffix = ")"
+                    outPrefix = "UPPER(" + outPrefix
+                    outSuffix = outSuffix + ")"
+                }
+
+                ret += keyPrefix
                 ret += key
+                ret += keySuffix
                 ret += " "
                 ret += operator
                 ret += " "
