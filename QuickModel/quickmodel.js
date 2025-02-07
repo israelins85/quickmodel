@@ -550,14 +550,6 @@ function isNull(obj) {
 }
 
 function isEmpty(obj) {
-    for (var prop in obj) {
-        return false
-    }
-
-    return true
-}
-
-function isEmpty(obj) {
     // null and undefined are "empty"
     if (obj === null)
         return true
@@ -586,7 +578,8 @@ function isEmpty(obj) {
     return true
 }
 
-function isObjectEquals(x, y) {
+function isEquals(x, y) {
+    // check if is strict equals
     if (x === y)
         return true
 
@@ -594,26 +587,43 @@ function isObjectEquals(x, y) {
     if (isNull(x) && isNull(y))
         return true
 
+    // Check if both x and y are Date objects and compare their time
+    if (x instanceof Date && y instanceof Date) {
+        return x.getTime() === y.getTime()
+    }
+
+    // if is array
+    if (Array.isArray(x) && Array.isArray(y)) {
+        if (x.length !== y.length)
+            return false // Check length first
+
+        for (var i = 0; i < x.length; i++) {
+            if (!isEquals(x[i], y[i])) {
+                return false
+            }
+        }
+
+        return true
+    }
+
     if (!(x instanceof Object) || !(y instanceof Object))
         return false
 
-    // they must have the exact same prototype chain, the closest we can do is
-    // test there constructor.
     for (var p in x) {
         // other properties were tested using x.constructor === y.constructor
         if (!y.hasOwnProperty(p) && !isNull(x[p]))
             return false
 
-        if (!isObjectEquals(x[p], y[p]))
+        if (!isEquals(x[p], y[p]))
             return false
-        // Objects and Arrays must be tested recursively
     }
 
-    for (p in y)
-        if (!x.hasOwnProperty(p) && !isNull(y[p]))
+    // Ensure all properties of y are present in x
+    for (var py in y) {
+        if (!x.hasOwnProperty(py))
             return false
+    }
 
-    // allows x[ p ] to be set to undefined
     return true
 }
 
@@ -726,8 +736,6 @@ QMModel.prototype = {
         var sql = "UPDATE " + this._meta.tableName + " SET "
         var idx = 0
         for (var field in obj) {
-            if (field === 'id')
-                continue
             if (field.startsWith('_'))
                 continue
 
@@ -736,7 +744,12 @@ QMModel.prototype = {
             if (typeof value === "function")
                 continue
 
+            var previousValue = obj._previous[field]
+            if (isEquals(previousValue, value))
+                continue
+
             const meta = this._fieldMeta(field)
+
             // @disable-check M126
             if (meta == null || meta.type === "CALCULATED") {
                 console.exception(`Unknow field ${field}`)
@@ -750,12 +763,20 @@ QMModel.prototype = {
             sql += `${field} = ${value}`
             idx++
         }
+
+        if (idx === 0) {
+            sql = "SELECT 1 FROM " + this._meta.tableName
+            sql += this._defineWhereClause(this.filterConditions)
+            var rs = this._meta.db.executeSql(sql)
+            return rs.rows.length
+        }
+
         sql += this._defineWhereClause(this.filterConditions)
 
-        var rs = this._meta.db.executeSql(sql)
+        var rsi = this._meta.db.executeSql(sql)
         this.filterConditions = {}
 
-        return rs.rowsAffected
+        return rsi.rowsAffected
     },
     "_insert": function (command, obj) {
         var sql = command + " INTO " + this._meta.tableName + "("
@@ -1231,6 +1252,8 @@ QMModel.prototype = {
             }
         }
 
+        obj._populatePreviousValues()
+
         // TODO: add calculated fields
         return obj
     }
@@ -1243,19 +1266,72 @@ QMModel.prototype = {
   *************************************/
 function QMObject(model) {
     this._model = model
+    this._previous = {}
     this.id = null
 }
 
 //Functions for single object
 QMObject.prototype = {
+    "_populatePreviousValues": function () {
+        this._previous = {}
+        for (var field in this) {
+            if (field.startsWith('_'))
+                continue
+
+            var value = this[field]
+
+            if (typeof value === "function")
+                continue
+
+            let meta = null
+            if (this._model._meta.fields.length !== 0) {
+                meta = this._model._fieldMeta(field)
+                if (meta == null)
+                    continue
+                if (meta.type === "CALCULATED")
+                    continue
+            }
+
+            this._previous[field] = value
+        }
+    },
+    "isChanged": function (field2Compare = undefined) {
+        // @disable-check M126
+        if (field2Compare == null) {
+            for (var field in this) {
+                if (field.startsWith('_'))
+                    continue
+
+                var value = this[field]
+
+                if (typeof value === "function")
+                    continue
+
+                var pValue = this._previous[field]
+
+                if (!isEquals(pValue, value))
+                    return true
+            }
+        } else {
+            if (!isEquals(this._previous[field2Compare], this[field2Compare]))
+                return true
+        }
+
+        return false
+    },
     "update": function (filter) {
         var l_rowsAffected = this._model.filter(filter ?? {
-                                                    "id": this.id
+                                                    "id": this._previous.id
+                                                          ?? this.id
                                                 }).update(this)
+        if (l_rowsAffected !== 0)
+            this._populatePreviousValues()
         return l_rowsAffected
     },
     "upsert": function (filter) {
         var l_rowsAffected = this._model.upsert(this)
+        if (l_rowsAffected !== 0)
+            this._populatePreviousValues()
         return l_rowsAffected
     },
     "insert": function (id) {
@@ -1267,14 +1343,17 @@ QMObject.prototype = {
         if (!this.id)
             this.id = id
 
+        this._populatePreviousValues()
+
         return this
     },
     "save": function (forceInsert) {
         if (typeof forceInsert === 'undefined') {
-            forceInsert = false
+            // @disable-check M126
+            forceInsert = this._previous.id == null
         }
 
-        if (this.id && !forceInsert) {
+        if (!forceInsert) {
             var l_rowsAffected = this.update()
             if (l_rowsAffected > 0)
                 return this
