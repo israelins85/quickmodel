@@ -744,7 +744,8 @@ QMModel.prototype = {
             if (typeof value === "function")
                 continue
 
-            var previousValue = obj._previous[field]
+            // @disable-check M126
+            var previousValue = obj._previous != null ? obj._previous[field] : null
             if (isEquals(previousValue, value))
                 continue
 
@@ -1294,6 +1295,12 @@ QMObject.prototype = {
 
             this._previous[field] = value
         }
+    },
+    "previousValue": function (field) {
+        // @disable-check M126
+        if (this._previous == null)
+            return null
+        return this._previous[field]
     },
     "isChanged": function (field2Compare = undefined) {
         // @disable-check M126
